@@ -1,0 +1,20 @@
+[workspace]
+members = ["examples/simple"]
+
+[package]
+name = "axum-prost-build"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["format"]
+format = ["prost-build/format"]
+cleanup-markdown = ["prost-build/cleanup-markdown"]
+
+[dependencies.prost-build]
+version = "0.14"
+default-features = false
+
+[dependencies.prost-reflect]
+version = "0.16"
+default-features = false
