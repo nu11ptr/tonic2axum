@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 
-[build-dependencies.axum-prost-build]
+[build-dependencies.tonic2axum-build]
 path = "../.."
 
 [build-dependencies.prost-build]

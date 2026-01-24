@@ -18,14 +18,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "axum-prost-build"
-version = "0.1.0"
-dependencies = [
- "prost-build",
- "prost-reflect",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -345,9 +337,9 @@ dependencies = [
 name = "simple"
 version = "0.1.0"
 dependencies = [
- "axum-prost-build",
  "prost-build",
  "tonic-prost-build",
+ "tonic2axum-build",
 ]
 
 [[package]]
@@ -400,6 +392,14 @@ dependencies = [
  "syn",
  "tempfile",
  "tonic-build",
+]
+
+[[package]]
+name = "tonic2axum-build"
+version = "0.1.0"
+dependencies = [
+ "prost-build",
+ "prost-reflect",
 ]
 
 [[package]]

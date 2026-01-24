@@ -2,7 +2,7 @@
 members = ["examples/simple"]
 
 [package]
-name = "axum-prost-build"
+name = "tonic2axum-build"
 version = "0.1.0"
 edition = "2024"
 
