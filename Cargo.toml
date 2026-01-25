@@ -11,6 +11,45 @@ default = ["format"]
 format = ["prost-build/format"]
 cleanup-markdown = ["prost-build/cleanup-markdown"]
 
+## Temp dependencies
+
+# [dependencies.async-trait]
+# version = "0.1"
+# default-features = false
+
+# [dependencies.axum]
+# version = "0.8"
+# default-features = false
+# features = ["json", "query"]
+
+# [dependencies.http]
+# version = "1"
+# default-features = false
+
+# [dependencies.serde]
+# version = "1"
+# default-features = false
+# features = ["derive"]
+
+# [dependencies.tonic]
+# version = "0.14"
+# default-features = false
+
+## End temp dependencies
+
+[dependencies.flexstr]
+version = "0.11"
+default-features = false
+features = ["serde", "std", "str"]
+
+[dependencies.heck]
+version = "0.5"
+default-features = false
+
+[dependencies.proc-macro2]
+version = "1"
+default-features = false
+
 [dependencies.prost-build]
 version = "0.14"
 default-features = false
@@ -18,3 +57,12 @@ default-features = false
 [dependencies.prost-reflect]
 version = "0.16"
 default-features = false
+
+[dependencies.quote]
+version = "1"
+default-features = false
+
+[dependencies.syn]
+version = "2"
+default-features = false
+features = ["extra-traits"]
