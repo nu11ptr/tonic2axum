@@ -1,5 +1,5 @@
 [workspace]
-members = ["examples/simple"]
+members = ["examples/simple", "tonic2axum"]
 
 [package]
 name = "tonic2axum-build"
