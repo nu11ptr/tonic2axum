@@ -1,7 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, error::Error};
 
 use flexstr::{LocalStr, str::LocalStrRef};
-use proc_macro2::Span;
 use prost_reflect::{DynamicMessage, Value};
 
 use crate::message::{ExistingMessages, Field, Message, NewMessages};
@@ -29,12 +28,58 @@ fn get_list_field_by_name<'msg>(
     })
 }
 
-// *** MessageMapping ***
+// *** MessageHandling ***
 
-pub(crate) struct MessageMapping {
-    pub query_str: Option<syn::Ident>,
-    pub path: Vec<Field>,
-    pub body: Option<syn::Ident>,
+pub(crate) enum MessageHandling {
+    VerbatimRequest,
+    VerbatimBinding(syn::Ident),
+    ExtractFields,
+}
+
+impl MessageHandling {
+    pub fn build_request(&self) -> bool {
+        match self {
+            MessageHandling::VerbatimBinding(_) | MessageHandling::ExtractFields => true,
+            MessageHandling::VerbatimRequest => false,
+        }
+    }
+}
+
+// *** MessageDetails ***
+
+pub(crate) struct MessageDetails {
+    pub ident: syn::Ident,
+    pub handling: MessageHandling,
+}
+
+impl MessageDetails {
+    pub fn build_request(&self) -> bool {
+        self.handling.build_request()
+    }
+}
+
+// *** MethodDetails ***
+
+pub(crate) struct MethodDetails {
+    pub method: LocalStr,
+    pub path: LocalStr,
+    pub path_fields: Vec<Field>,
+    pub query_str: Option<MessageDetails>,
+    pub body: Option<MessageDetails>,
+}
+
+impl MethodDetails {
+    pub fn build_request(&self) -> bool {
+        !self.path_fields.is_empty()
+            || self
+                .query_str
+                .as_ref()
+                .is_some_and(|details| details.build_request())
+            || self
+                .body
+                .as_ref()
+                .is_some_and(|details| details.build_request())
+    }
 }
 
 // *** HttpOption ***
@@ -76,7 +121,7 @@ impl HttpOption {
         message: &mut Message,
         existing_messages: &ExistingMessages,
         new_messages: &mut NewMessages,
-    ) -> Result<Option<syn::Ident>, Box<dyn Error>> {
+    ) -> Result<Option<MessageDetails>, Box<dyn Error>> {
         match &self.body {
             // Wildcard body
             Some(body) if body == "*" => {
@@ -84,12 +129,19 @@ impl HttpOption {
                 let intact = message.is_intact();
                 let fields = message.remove_all_fields();
 
-                // If nothing is bound by the path and body captures everythign else, use the message itself
+                // If nothing is bound by the path and the body captures everythign else, use the message itself
                 if intact {
-                    Ok(Some(message.ident.clone()))
+                    Ok(Some(MessageDetails {
+                        ident: message.ident.clone(),
+                        handling: MessageHandling::VerbatimRequest,
+                    }))
                 } else {
+                    // Build a new struct with the remaining fields
                     let ident = new_messages.get_or_create_message(message.name.clone(), fields);
-                    Ok(Some(ident))
+                    Ok(Some(MessageDetails {
+                        ident,
+                        handling: MessageHandling::ExtractFields,
+                    }))
                 }
             }
             // Single field body
@@ -105,14 +157,23 @@ impl HttpOption {
                 let type_name = field.type_name.as_ref();
                 match existing_messages.get_message(type_name) {
                     // Yes, use the existing (nested) message
-                    Some(_) => Ok(Some(syn::Ident::new(type_name, Span::call_site()))),
+                    Some(message) => Ok(Some(MessageDetails {
+                        ident: message.ident.clone(),
+                        handling: MessageHandling::VerbatimBinding(field.ident.clone()),
+                    })),
                     // No, but this is the only field it has, so use the message itself
-                    None if intact_single_field => Ok(Some(message.ident.clone())),
+                    None if intact_single_field => Ok(Some(MessageDetails {
+                        ident: message.ident.clone(),
+                        handling: MessageHandling::VerbatimRequest,
+                    })),
                     // No, but it is either not intact or has multiple fields, so we need to build a new single field struct
                     None => {
                         let ident =
                             new_messages.get_or_create_message(message.name.clone(), vec![field]);
-                        Ok(Some(ident))
+                        Ok(Some(MessageDetails {
+                            ident,
+                            handling: MessageHandling::ExtractFields,
+                        }))
                     }
                 }
             }
@@ -125,18 +186,24 @@ impl HttpOption {
         &self,
         message: &mut Message,
         new_messages: &mut NewMessages,
-    ) -> Option<syn::Ident> {
+    ) -> Option<MessageDetails> {
         if message.is_empty() {
             // No fields left, so no query struct is needed
             None
         } else if message.is_intact() {
             // Use the message itself
-            Some(message.ident.clone())
+            Some(MessageDetails {
+                ident: message.ident.clone(),
+                handling: MessageHandling::VerbatimRequest,
+            })
         } else {
             // Build a new struct with the remaining fields
             let fields = message.remove_all_fields();
             let ident = new_messages.get_or_create_message(message.name.clone(), fields);
-            Some(ident)
+            Some(MessageDetails {
+                ident,
+                handling: MessageHandling::ExtractFields,
+            })
         }
     }
 
@@ -145,15 +212,18 @@ impl HttpOption {
         message: &Message,
         message_fields: &ExistingMessages,
         new_messages: &mut NewMessages,
-    ) -> Result<MessageMapping, Box<dyn Error>> {
+    ) -> Result<MethodDetails, Box<dyn Error>> {
         let mut message = message.clone();
-        let path = self.parse_pattern(&mut message)?;
+        let path_fields = self.parse_pattern(&mut message)?;
         let body = self.parse_body(&mut message, message_fields, new_messages)?;
         let query_str = self.parse_query_str(&mut message, new_messages);
-        Ok(MessageMapping {
-            path,
-            body,
+
+        Ok(MethodDetails {
+            method: self.method.clone(),
+            path: self.build_path(),
             query_str,
+            path_fields,
+            body,
         })
     }
 }
@@ -174,7 +244,7 @@ impl HttpOptions {
         message: &Message,
         existing_messages: &ExistingMessages,
         new_messages: &mut NewMessages,
-    ) -> Result<Option<MessageMapping>, Box<dyn Error>> {
+    ) -> Result<Option<MethodDetails>, Box<dyn Error>> {
         match self.get_http_options(service_name, method_name) {
             Some(option) => Ok(Some(option.parse(
                 message,
@@ -193,12 +263,12 @@ impl HttpOptions {
         if let Some(files) = get_list_field_by_name(fds_dynamic, "file") {
             for file in files.iter() {
                 let file_msg = file.as_message().ok_or("Invalid file message")?;
-                let pkg = get_str_field_by_name(&file_msg, "package").unwrap_or("".into());
+                let pkg = get_str_field_by_name(file_msg, "package").unwrap_or("".into());
 
-                if let Some(services) = get_list_field_by_name(&file_msg, "service") {
+                if let Some(services) = get_list_field_by_name(file_msg, "service") {
                     for service in services.iter() {
                         let service_msg = service.as_message().ok_or("Invalid service message")?;
-                        let srv_name = get_str_field_by_name(&service_msg, "name")
+                        let srv_name = get_str_field_by_name(service_msg, "name")
                             .ok_or("Invalid service name")?;
 
                         let service_name = if pkg.is_empty() {
@@ -209,12 +279,12 @@ impl HttpOptions {
                         };
                         let mut method_cache = HashMap::new();
 
-                        if let Some(methods) = get_list_field_by_name(&service_msg, "method") {
+                        if let Some(methods) = get_list_field_by_name(service_msg, "method") {
                             for method in methods.iter() {
                                 let method_msg =
                                     method.as_message().ok_or("Invalid method message")?;
                                 let method_name: LocalStrRef =
-                                    get_str_field_by_name(&method_msg, "name")
+                                    get_str_field_by_name(method_msg, "name")
                                         .ok_or("Invalid method name")?
                                         .into();
                                 let method_name = method_name.into_owned().optimize();

@@ -114,20 +114,17 @@ impl ExistingMessages {
         let file: syn::File = syn::parse_str(src)?;
 
         for item in file.items {
-            match item {
-                syn::Item::Struct(struct_) => {
-                    let mut message = Message::new(struct_.ident);
+            if let syn::Item::Struct(struct_) = item {
+                let mut message = Message::new(struct_.ident);
 
-                    for field in struct_.fields {
-                        if let Some(ident) = field.ident {
-                            let type_ = field.ty;
-                            message.add_field(Field::new(ident, type_));
-                        }
+                for field in struct_.fields {
+                    if let Some(ident) = field.ident {
+                        let type_ = field.ty;
+                        message.add_field(Field::new(ident, type_));
                     }
-
-                    self.add_message(message);
                 }
-                _ => {}
+
+                self.add_message(message);
             }
         }
 
@@ -154,10 +151,7 @@ impl NewMessages {
         fields: Vec<Field>,
     ) -> syn::Ident {
         // Find messages for this input message name
-        let messages = self
-            .0
-            .entry(input_message_name.clone())
-            .or_insert(Vec::new());
+        let messages = self.0.entry(input_message_name.clone()).or_default();
 
         // Try to find a matching message first before creating a new one. Return the existing message if found.
         for message in messages.iter() {

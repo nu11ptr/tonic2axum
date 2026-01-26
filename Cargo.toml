@@ -35,6 +35,9 @@ cleanup-markdown = ["prost-build/cleanup-markdown"]
 # version = "0.14"
 # default-features = false
 
+# [dependencies.tonic2axum]
+# path = "./tonic2axum"
+
 ## End temp dependencies
 
 [dependencies.flexstr]
@@ -44,10 +47,6 @@ features = ["serde", "std", "str"]
 
 [dependencies.heck]
 version = "0.5"
-default-features = false
-
-[dependencies.proc-macro2]
-version = "1"
 default-features = false
 
 [dependencies.prost-build]

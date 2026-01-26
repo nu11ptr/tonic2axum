@@ -56,7 +56,7 @@ impl Generator {
                     if let Some(_http_options) = self.options.calculate_messages(
                         &service.name,
                         &method.name,
-                        &message,
+                        message,
                         &self.existing_messages,
                         &mut new_messages,
                     )? {
