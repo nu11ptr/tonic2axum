@@ -9,14 +9,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let fds = config.load_fds(&["proto/hello/v1/hello.proto"], &["proto"])?;
     let bytes = std::fs::read(&fds_path)?;
 
-    // 2. tonic_prost_build: Configure the Builder
+    // 2. pbjson_build: Implement Serialization and Deserialization for the messages
+    pbjson_build::Builder::new()
+        .register_descriptors(&bytes)?
+        .build(&[".hello.v1"])?;
+
+    // 3. tonic_prost_build: Configure the Builder
     let prost_builder = tonic_prost_build::configure().build_client(false);
 
-    // 3. tonic2axum_build: We wrap the tonic_prost_build service generator in our builder, and use our service generator with prost_build.
+    // 4. tonic2axum_build: We wrap the tonic_prost_build service generator in our builder, and use our service generator with prost_build.
     let t2a_builder = tonic2axum_build::Builder::new(prost_builder.service_generator(), bytes);
     config.service_generator(t2a_builder.into_service_generator()?);
 
-    // 4. prost_build: Generate the Rust files
+    // 5. prost_build: Generate the Rust files
     config.compile_fds(fds)?;
 
     Ok(())

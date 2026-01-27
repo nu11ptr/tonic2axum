@@ -306,6 +306,8 @@ impl Generator {
         let module = quote! {
             /// Generated axum handlers.
             pub mod #service_mod_name {
+                #![allow(unused_imports)]
+
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
@@ -417,6 +419,7 @@ impl Generator {
         quote! {
             #[doc = #comment]
             pub fn #func_name #generics(state: #type_name) -> axum::Router {
+                #[allow(unused_imports)]
                 use axum::routing::{get, post, put, delete, patch};
 
                 axum::Router::new()
