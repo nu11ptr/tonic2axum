@@ -314,7 +314,7 @@ impl HttpOptions {
                 for (field, value) in http_rule.fields() {
                     match field.name() {
                         "get" | "post" | "put" | "delete" | "patch" => {
-                            method = LocalStr::from_owned(field.name().to_uppercase()).optimize();
+                            method = LocalStrRef::from_borrowed(field.name()).into_owned();
                             pattern = LocalStrRef::from_borrowed(value.as_str()?).into_owned();
                         }
                         "body" => {

@@ -18,102 +18,92 @@ fn ident(name: &str) -> syn::Ident {
 
 // *** TonicTypeBounds and TonicType ***
 
-pub(crate) struct TonicTypeBounds {
-    handler_bound: TokenStream,
-    router_bound: TokenStream,
+pub(crate) struct ServiceTypeGenerics {
+    handler_route_turbofish: TokenStream,
+    handler_generics: TokenStream,
+    router_generics: TokenStream,
 }
 
-pub(crate) struct TonicType {
-    type_name: TokenStream,
-    bounds: Option<TonicTypeBounds>,
+pub(crate) struct ServiceType {
+    pub handler_type_name: TokenStream,
+    pub router_type_name: TokenStream,
+    pub generics: Option<ServiceTypeGenerics>,
 }
 
-impl TonicType {
-    pub fn new(service_name: &str, state_type: Option<StateType>) -> Self {
-        fn make_bound(service_name: &str) -> TokenStream {
+impl ServiceType {
+    pub fn new(service_name: &str, state_type: Option<&StateType>) -> Self {
+        fn make_fq_trait_name(service_name: &str) -> TokenStream {
             let service_mod_name = format_ident!("{}_server", service_name.to_snake_case());
             let service_trait_name = ident(service_name);
 
             quote! {
-                super::#service_mod_name::#service_trait_name
+                #service_mod_name::#service_trait_name
             }
         }
 
         match state_type {
             // Custom type
             Some(StateType::Custom(type_)) => {
-                let type_name = ident(&type_).into_token_stream();
+                let type_name = ident(type_).into_token_stream();
                 Self {
-                    type_name,
-                    bounds: None,
+                    handler_type_name: type_name.clone(),
+                    router_type_name: type_name,
+                    generics: None,
                 }
             }
             // Trait object
             Some(StateType::ArcTraitObj) => {
-                let fq_trait_name = make_bound(service_name);
-                let type_name = quote! { Arc<dyn #fq_trait_name> };
+                let fq_trait_name = make_fq_trait_name(service_name);
+                let router_type_name = quote! { Arc<dyn #fq_trait_name> };
+                let handler_type_name = quote! { Arc<dyn super::#fq_trait_name> };
 
                 Self {
-                    type_name,
-                    bounds: None,
+                    router_type_name,
+                    handler_type_name,
+                    generics: None,
                 }
             }
             // Generic by default
             None => {
                 let type_name = ident("S").into_token_stream();
-                let handler_bound = make_bound(service_name);
-                let router_bound = quote! {
-                   #handler_bound + Clone
+                let handler_bound = make_fq_trait_name(service_name);
+                let generics = ServiceTypeGenerics {
+                    handler_route_turbofish: quote! {
+                        ::<#type_name>
+                    },
+                    handler_generics: quote! {
+                        <#type_name: super::#handler_bound>
+                    },
+                    router_generics: quote! {
+                        <#type_name: #handler_bound + Clone>
+                    },
                 };
 
                 Self {
-                    type_name,
-                    bounds: Some(TonicTypeBounds {
-                        handler_bound,
-                        router_bound,
-                    }),
+                    handler_type_name: type_name.clone(),
+                    router_type_name: type_name,
+                    generics: Some(generics),
                 }
             }
         }
     }
 
-    pub fn handler_route_name(&self, handler_name: &syn::Ident) -> TokenStream {
-        if self.bounds.is_some() {
-            let type_name = &self.type_name;
-            quote! {
-                #handler_name::<#type_name>
-            }
-        } else {
-            quote! {
-                #handler_name
-            }
-        }
+    pub fn handler_route_turbofish(&self) -> Option<&TokenStream> {
+        self.generics
+            .as_ref()
+            .map(|generics| &generics.handler_route_turbofish)
     }
 
-    pub fn handler_name(&self, handler_name: &syn::Ident) -> TokenStream {
-        match &self.bounds {
-            Some(bounds) => {
-                let type_name = &self.type_name;
-                let bound = &bounds.handler_bound;
-                quote! {
-                    #handler_name<#type_name: #bound>
-                }
-            }
-            None => handler_name.into_token_stream(),
-        }
+    pub fn handler_generics(&self) -> Option<&TokenStream> {
+        self.generics
+            .as_ref()
+            .map(|generics| &generics.handler_generics)
     }
 
-    pub fn router_name(&self) -> TokenStream {
-        match &self.bounds {
-            Some(bounds) => {
-                let type_name = &self.type_name;
-                let bound = &bounds.router_bound;
-                quote! {
-                    make_router<#type_name: #bound>
-                }
-            }
-            None => ident("make_router").into_token_stream(),
-        }
+    pub fn router_generics(&self) -> Option<&TokenStream> {
+        self.generics
+            .as_ref()
+            .map(|generics| &generics.router_generics)
     }
 }
 
@@ -162,27 +152,45 @@ impl Generator {
 
         let mut new_messages = NewMessages::default();
 
-        let mut methods = Vec::with_capacity(service.methods.len());
+        let state_type = self.state_types.get(service.name.as_str());
+        let service_type = ServiceType::new(&service.name, state_type);
+
+        let service_mod_name = format_ident!("{}_handlers", service.name.to_snake_case());
+
+        let mut functions = Vec::with_capacity(service.methods.len());
+        let mut routes = Vec::with_capacity(service.methods.len());
         for method in &service.methods {
-            if let Some(method) =
-                self.generate_function(&service.name, method, &mut new_messages)?
-            {
-                methods.push(method);
+            if let Some((function, route)) = self.generate_func(
+                &service.name,
+                method,
+                &mut new_messages,
+                &service_type,
+                &service_mod_name,
+            )? {
+                functions.push(function);
+                routes.push(route);
             }
         }
 
         let structs = new_messages
             .messages()
             .map(|message| self.generate_struct(message));
-        let service_name = format_ident!("{}_handlers", service.name.to_snake_case());
+
+        let router_func = Self::generate_router(&service.name, &service_type, routes);
 
         let module = quote! {
             #(#structs)*
 
             /// Generated axum handlers.
-            pub mod #service_name {
-                #(#methods)*
+            pub mod #service_mod_name {
+                use axum::Json;
+                use axum::body::Body;
+                use axum::extract::{Path, Query, State};
+
+                #(#functions)*
             }
+
+            #router_func
         };
 
         buf.push_str(&module.to_string());
@@ -195,24 +203,26 @@ impl Generator {
             let field_name = &field.ident;
             let field_type = &field.type_;
             quote! {
-                #field_name: #field_type
+                pub #field_name: #field_type
             }
         });
         let message_name = &message.ident;
         quote! {
             #[derive(serde::Deserialize)]
-            struct #message_name {
+            pub struct #message_name {
                 #(#fields),*
             }
         }
     }
 
-    fn generate_function(
+    fn generate_func(
         &mut self,
         service_name: &str,
         method: &prost_build::Method,
         new_messages: &mut NewMessages,
-    ) -> Result<Option<TokenStream>, Box<dyn Error>> {
+        service_type: &ServiceType,
+        service_mod_name: &syn::Ident,
+    ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
         match self.existing_messages.get_message(&method.input_type) {
             Some(message) => {
                 if let Some(method_details) = self.options.calculate_messages(
@@ -222,16 +232,33 @@ impl Generator {
                     &self.existing_messages,
                     new_messages,
                 )? {
-                    let method_name = syn::Ident::new(&method.name, proc_macro2::Span::call_site());
-                    let method_comments = method.comments.leading.join("\n");
+                    // Build the function
+                    let func_name = ident(&method.name);
+                    let func_comments = method.comments.leading.join("\n");
+                    let state_type = &service_type.handler_type_name;
+                    let handler_generics = service_type.handler_generics();
 
-                    let method_decl = quote! {
-                         #[doc = #method_comments]
-                        async fn #method_name() -> http::Response<axum::body::Body> {
-
+                    let func = quote! {
+                        #[doc = #func_comments]
+                        pub async fn #func_name #handler_generics(
+                            State(state__): State<#state_type>,
+                            headers__: http::HeaderMap,
+                            extensions__: http::Extensions,
+                        ) -> http::Response<Body> {
+                            let req__ = tonic2axum::make_request(headers__, extensions__, req__);
+                            tonic2axum::make_response(state__.#func_name(req__).await)
                         }
                     };
-                    Ok(Some(method_decl))
+
+                    // Build the route
+                    let path = method_details.path.as_ref();
+                    let method = ident(&method_details.method);
+                    let turbofish = service_type.handler_route_turbofish();
+                    let route = quote! {
+                        .route(#path, #method(#service_mod_name::#func_name #turbofish))
+                    };
+
+                    Ok(Some((func, route)))
                 } else {
                     println!("No method details found");
                     Ok(None)
@@ -242,6 +269,28 @@ impl Generator {
                 method.input_type, service_name, &method.name
             )
             .into()),
+        }
+    }
+
+    fn generate_router(
+        service_name: &str,
+        service_type: &ServiceType,
+        routes: Vec<TokenStream>,
+    ) -> TokenStream {
+        let func_name = format_ident!("make_{}_router", service_name.to_snake_case());
+        let type_name = &service_type.router_type_name;
+        let generics = service_type.router_generics();
+        let comment = format!(" Axum router for the {service_name} service");
+
+        quote! {
+            #[doc = #comment]
+            pub fn #func_name #generics(state: #type_name) -> axum::Router {
+                use axum::routing::{get, post, put, delete, patch};
+
+                axum::Router::new()
+                    #(#routes)*
+                    .with_state(state)
+            }
         }
     }
 }

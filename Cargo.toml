@@ -43,7 +43,7 @@ cleanup-markdown = ["prost-build/cleanup-markdown"]
 [dependencies.flexstr]
 version = "0.11"
 default-features = false
-features = ["serde", "std", "str"]
+features = ["std", "str"]
 
 [dependencies.heck]
 version = "0.5"
