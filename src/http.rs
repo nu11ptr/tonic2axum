@@ -32,14 +32,14 @@ fn get_list_field_by_name<'msg>(
 
 pub(crate) enum MessageHandling {
     VerbatimRequest,
-    VerbatimBinding(syn::Ident),
-    ExtractFields,
+    ExtractSingleField(syn::Ident),
+    ExtractFields(Vec<syn::Ident>),
 }
 
 impl MessageHandling {
     pub fn build_request(&self) -> bool {
         match self {
-            MessageHandling::VerbatimBinding(_) | MessageHandling::ExtractFields => true,
+            MessageHandling::ExtractFields(_) | MessageHandling::ExtractSingleField(_) => true,
             MessageHandling::VerbatimRequest => false,
         }
     }
@@ -48,7 +48,7 @@ impl MessageHandling {
 // *** MessageDetails ***
 
 pub(crate) struct MessageDetails {
-    pub ident: syn::Ident,
+    pub type_name: syn::Ident,
     pub handling: MessageHandling,
 }
 
@@ -132,15 +132,17 @@ impl HttpOption {
                 // If nothing is bound by the path and the body captures everythign else, use the message itself
                 if intact {
                     Ok(Some(MessageDetails {
-                        ident: message.ident.clone(),
+                        type_name: message.ident.clone(),
                         handling: MessageHandling::VerbatimRequest,
                     }))
                 } else {
                     // Build a new struct with the remaining fields
-                    let ident = new_messages.get_or_create_message(message.name.clone(), fields);
+                    let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
+                    let type_name =
+                        new_messages.get_or_create_message(message.name.clone(), fields);
                     Ok(Some(MessageDetails {
-                        ident,
-                        handling: MessageHandling::ExtractFields,
+                        type_name,
+                        handling: MessageHandling::ExtractFields(extracted_fields),
                     }))
                 }
             }
@@ -158,21 +160,22 @@ impl HttpOption {
                 match existing_messages.get_message(type_name) {
                     // Yes, use the existing (nested) message
                     Some(message) => Ok(Some(MessageDetails {
-                        ident: message.ident.clone(),
-                        handling: MessageHandling::VerbatimBinding(field.ident.clone()),
+                        type_name: message.ident.clone(),
+                        handling: MessageHandling::ExtractSingleField(field.ident.clone()),
                     })),
                     // No, but this is the only field it has, so use the message itself
                     None if intact_single_field => Ok(Some(MessageDetails {
-                        ident: message.ident.clone(),
+                        type_name: message.ident.clone(),
                         handling: MessageHandling::VerbatimRequest,
                     })),
                     // No, but it is either not intact or has multiple fields, so we need to build a new single field struct
                     None => {
-                        let ident =
+                        let extracted_fields = vec![field.ident.clone()];
+                        let type_name =
                             new_messages.get_or_create_message(message.name.clone(), vec![field]);
                         Ok(Some(MessageDetails {
-                            ident,
-                            handling: MessageHandling::ExtractFields,
+                            type_name,
+                            handling: MessageHandling::ExtractFields(extracted_fields),
                         }))
                     }
                 }
@@ -193,16 +196,17 @@ impl HttpOption {
         } else if message.is_intact() {
             // Use the message itself
             Some(MessageDetails {
-                ident: message.ident.clone(),
+                type_name: message.ident.clone(),
                 handling: MessageHandling::VerbatimRequest,
             })
         } else {
             // Build a new struct with the remaining fields
             let fields = message.remove_all_fields();
-            let ident = new_messages.get_or_create_message(message.name.clone(), fields);
+            let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
+            let type_name = new_messages.get_or_create_message(message.name.clone(), fields);
             Some(MessageDetails {
-                ident,
-                handling: MessageHandling::ExtractFields,
+                type_name,
+                handling: MessageHandling::ExtractFields(extracted_fields),
             })
         }
     }

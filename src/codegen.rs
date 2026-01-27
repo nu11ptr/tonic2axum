@@ -9,14 +9,15 @@ use quote::{ToTokens as _, format_ident, quote};
 
 use crate::{
     HttpOptions, StateType,
-    message::{ExistingMessages, Message, NewMessages},
+    http::{MessageDetails, MessageHandling, MethodDetails},
+    message::{ExistingMessages, Field, Message, NewMessages},
 };
 
 fn ident(name: &str) -> syn::Ident {
     syn::Ident::new(name, Span::call_site())
 }
 
-// *** TonicTypeBounds and TonicType ***
+// *** ServiceTypeGenerics and ServiceType ***
 
 pub(crate) struct ServiceTypeGenerics {
     handler_route_turbofish: TokenStream,
@@ -104,6 +105,136 @@ impl ServiceType {
         self.generics
             .as_ref()
             .map(|generics| &generics.router_generics)
+    }
+}
+
+// *** FunctionParts ***
+
+pub(crate) struct FunctionParts {
+    pub path_extractor: Option<TokenStream>,
+    pub query_extractor: Option<TokenStream>,
+    pub body_extractor: Option<TokenStream>,
+    pub request_builder: Option<TokenStream>,
+}
+
+impl FunctionParts {
+    pub fn new(method_details: &MethodDetails, input_type: &str) -> Self {
+        let mut extracted_fields = Vec::new();
+
+        let path_extractor =
+            Self::make_path_extractor(&method_details.path_fields, &mut extracted_fields);
+        let query_extractor =
+            Self::make_query_extractor(&method_details.query_str, &mut extracted_fields);
+        let body_extractor = Self::make_body_extractor(&method_details.body, &mut extracted_fields);
+        let request_builder = Self::make_request_builder(&extracted_fields, input_type);
+
+        Self {
+            path_extractor,
+            query_extractor,
+            body_extractor,
+            request_builder,
+        }
+    }
+
+    fn make_path_extractor(
+        fields: &[Field],
+        extracted_fields: &mut Vec<syn::Ident>,
+    ) -> Option<TokenStream> {
+        if fields.is_empty() {
+            None
+        } else {
+            let paths = fields.iter().map(|field| {
+                let field_name = &field.ident;
+                let field_type = &field.type_;
+                extracted_fields.push(field_name.clone());
+
+                quote! {
+                    Path(#field_name): Path<#field_type>,
+                }
+            });
+            Some(quote! {
+                #(#paths)*
+            })
+        }
+    }
+
+    fn make_query_extractor(
+        query_str: &Option<MessageDetails>,
+        extracted_fields: &mut Vec<syn::Ident>,
+    ) -> Option<TokenStream> {
+        match query_str {
+            Some(message_details) => match &message_details {
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::ExtractFields(fields),
+                } => {
+                    extracted_fields.extend(fields.iter().cloned());
+                    Some(quote! {
+                        Query(super::#type_name { #(#fields),* }): Query<super::#type_name>,
+                    })
+                }
+                MessageDetails {
+                    handling: MessageHandling::ExtractSingleField(_),
+                    ..
+                } => unreachable!(),
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::VerbatimRequest,
+                } => Some(quote! {
+                    req__: Query<super::#type_name>,
+                }),
+            },
+            None => None,
+        }
+    }
+
+    fn make_body_extractor(
+        body: &Option<MessageDetails>,
+        extracted_fields: &mut Vec<syn::Ident>,
+    ) -> Option<TokenStream> {
+        match body {
+            Some(message_details) => match &message_details {
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::ExtractFields(fields),
+                } => {
+                    extracted_fields.extend(fields.iter().cloned());
+                    Some(quote! {
+                        Json(super::#type_name { #(#fields),* }): Json<super::#type_name>,
+                    })
+                }
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::ExtractSingleField(field),
+                } => {
+                    extracted_fields.push(field.clone());
+                    Some(quote! {
+                        Json(super::#type_name { #field }): Json<super::#type_name>,
+                    })
+                }
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::VerbatimRequest,
+                } => Some(quote! {
+                    req__: Json<super::#type_name>,
+                }),
+            },
+            None => None,
+        }
+    }
+
+    fn make_request_builder(
+        extracted_fields: &[syn::Ident],
+        input_type: &str,
+    ) -> Option<TokenStream> {
+        if extracted_fields.is_empty() {
+            None
+        } else {
+            let type_name = ident(input_type);
+            Some(quote! {
+                let req__ = super::#type_name { #(#extracted_fields),* };
+            })
+        }
     }
 }
 
@@ -233,6 +364,12 @@ impl Generator {
                     new_messages,
                 )? {
                     // Build the function
+                    let FunctionParts {
+                        path_extractor,
+                        query_extractor,
+                        body_extractor,
+                        request_builder,
+                    } = FunctionParts::new(&method_details, &method.input_type);
                     let func_name = ident(&method.name);
                     let func_comments = method.comments.leading.join("\n");
                     let state_type = &service_type.handler_type_name;
@@ -242,9 +379,13 @@ impl Generator {
                         #[doc = #func_comments]
                         pub async fn #func_name #handler_generics(
                             State(state__): State<#state_type>,
+                            #path_extractor
+                            #query_extractor
                             headers__: http::HeaderMap,
                             extensions__: http::Extensions,
+                            #body_extractor
                         ) -> http::Response<Body> {
+                            #request_builder
                             let req__ = tonic2axum::make_request(headers__, extensions__, req__);
                             tonic2axum::make_response(state__.#func_name(req__).await)
                         }
