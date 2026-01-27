@@ -244,7 +244,10 @@ pub(crate) struct Generator {
     service_generator: Box<dyn ServiceGenerator>,
     state_types: HashMap<LocalStr, StateType>,
     options: HttpOptions,
+    new_messages: NewMessages,
     existing_messages: ExistingMessages,
+    modules: Vec<TokenStream>,
+    routers: Vec<TokenStream>,
 }
 
 impl Generator {
@@ -261,7 +264,10 @@ impl Generator {
             service_generator,
             state_types,
             options,
+            new_messages: NewMessages::default(),
             existing_messages: ExistingMessages::default(),
+            modules: Vec::new(),
+            routers: Vec::new(),
         })
     }
 
@@ -276,12 +282,10 @@ impl Generator {
     fn generate_service(
         &mut self,
         service: &prost_build::Service,
-        buf: &mut String,
+        buf: &str,
     ) -> Result<(), Box<dyn Error>> {
         // Parse the existing messages from the buffer to start
         self.existing_messages.parse_source(buf)?;
-
-        let mut new_messages = NewMessages::default();
 
         let state_type = self.state_types.get(service.name.as_str());
         let service_type = ServiceType::new(&service.name, state_type);
@@ -291,27 +295,15 @@ impl Generator {
         let mut functions = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
         for method in &service.methods {
-            if let Some((function, route)) = self.generate_func(
-                &service.name,
-                method,
-                &mut new_messages,
-                &service_type,
-                &service_mod_name,
-            )? {
+            if let Some((function, route)) =
+                self.generate_func(&service.name, method, &service_type, &service_mod_name)?
+            {
                 functions.push(function);
                 routes.push(route);
             }
         }
 
-        let structs = new_messages
-            .messages()
-            .map(|message| self.generate_struct(message));
-
-        let router_func = Self::generate_router(&service.name, &service_type, routes);
-
         let module = quote! {
-            #(#structs)*
-
             /// Generated axum handlers.
             pub mod #service_mod_name {
                 use axum::Json;
@@ -320,16 +312,16 @@ impl Generator {
 
                 #(#functions)*
             }
-
-            #router_func
         };
+        let router_func = Self::generate_router(&service.name, &service_type, routes);
 
-        buf.push_str(&module.to_string());
+        self.modules.push(module);
+        self.routers.push(router_func);
 
         Ok(())
     }
 
-    fn generate_struct(&self, message: &Message) -> TokenStream {
+    fn generate_struct(message: &Message) -> TokenStream {
         let fields = message.fields().iter().map(|field| {
             let field_name = &field.ident;
             let field_type = &field.type_;
@@ -350,7 +342,6 @@ impl Generator {
         &mut self,
         service_name: &str,
         method: &prost_build::Method,
-        new_messages: &mut NewMessages,
         service_type: &ServiceType,
         service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
@@ -361,7 +352,7 @@ impl Generator {
                     &method.proto_name,
                     message,
                     &self.existing_messages,
-                    new_messages,
+                    &mut self.new_messages,
                 )? {
                     // Build the function
                     let FunctionParts {
@@ -434,6 +425,23 @@ impl Generator {
             }
         }
     }
+
+    fn write_code_to_buffer(&mut self, buf: &mut String) {
+        // These are done last because they are gathered from each service
+        let structs = self.new_messages.messages().map(Self::generate_struct);
+        let modules = &self.modules;
+        let routers = &self.routers;
+
+        let file = quote! {
+            #(#structs)*
+
+            #(#modules)*
+
+            #(#routers)*
+        };
+
+        buf.push_str(&file.to_string());
+    }
 }
 
 impl ServiceGenerator for Generator {
@@ -444,7 +452,7 @@ impl ServiceGenerator for Generator {
             panic!("Failed to generate service: {e:#?}");
         }
 
-        // Generate tonic_prost_build service code last
+        // Generate tonic_prost_build service code last - no need to parse the trait code
         self.service_generator.generate(service, buf);
     }
 
@@ -456,5 +464,7 @@ impl ServiceGenerator for Generator {
     fn finalize_package(&mut self, package: &str, buf: &mut String) {
         println!("Finalizing package: {package:#?}");
         self.service_generator.finalize_package(package, buf);
+
+        self.write_code_to_buffer(buf);
     }
 }

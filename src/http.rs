@@ -36,26 +36,11 @@ pub(crate) enum MessageHandling {
     ExtractFields(Vec<syn::Ident>),
 }
 
-impl MessageHandling {
-    pub fn build_request(&self) -> bool {
-        match self {
-            MessageHandling::ExtractFields(_) | MessageHandling::ExtractSingleField(_) => true,
-            MessageHandling::VerbatimRequest => false,
-        }
-    }
-}
-
 // *** MessageDetails ***
 
 pub(crate) struct MessageDetails {
     pub type_name: syn::Ident,
     pub handling: MessageHandling,
-}
-
-impl MessageDetails {
-    pub fn build_request(&self) -> bool {
-        self.handling.build_request()
-    }
 }
 
 // *** MethodDetails ***
@@ -66,20 +51,6 @@ pub(crate) struct MethodDetails {
     pub path_fields: Vec<Field>,
     pub query_str: Option<MessageDetails>,
     pub body: Option<MessageDetails>,
-}
-
-impl MethodDetails {
-    pub fn build_request(&self) -> bool {
-        !self.path_fields.is_empty()
-            || self
-                .query_str
-                .as_ref()
-                .is_some_and(|details| details.build_request())
-            || self
-                .body
-                .as_ref()
-                .is_some_and(|details| details.build_request())
-    }
 }
 
 // *** HttpOption ***
