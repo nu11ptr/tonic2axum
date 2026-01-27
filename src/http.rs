@@ -263,20 +263,15 @@ impl HttpOptions {
         if let Some(files) = get_list_field_by_name(fds_dynamic, "file") {
             for file in files.iter() {
                 let file_msg = file.as_message().ok_or("Invalid file message")?;
-                let pkg = get_str_field_by_name(file_msg, "package").unwrap_or("".into());
 
                 if let Some(services) = get_list_field_by_name(file_msg, "service") {
                     for service in services.iter() {
                         let service_msg = service.as_message().ok_or("Invalid service message")?;
-                        let srv_name = get_str_field_by_name(service_msg, "name")
-                            .ok_or("Invalid service name")?;
+                        let service_name: LocalStrRef = get_str_field_by_name(service_msg, "name")
+                            .ok_or("Invalid service name")?
+                            .into();
+                        let service_name = service_name.into_owned().optimize();
 
-                        let service_name = if pkg.is_empty() {
-                            let srv_name: LocalStrRef = srv_name.into();
-                            srv_name.into_owned().optimize()
-                        } else {
-                            LocalStr::from_owned(format!("{}.{}", pkg, srv_name)).optimize()
-                        };
                         let mut method_cache = HashMap::new();
 
                         if let Some(methods) = get_list_field_by_name(service_msg, "method") {

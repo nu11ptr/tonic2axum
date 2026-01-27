@@ -25,6 +25,10 @@ impl Message {
         }
     }
 
+    pub fn fields(&self) -> &[Field] {
+        &self.fields
+    }
+
     pub fn add_fields(&mut self, fields: Vec<Field>) {
         let field_count = fields.len();
         self.fields.extend(fields);
@@ -167,5 +171,9 @@ impl NewMessages {
         let ident = message.ident.clone();
         messages.push(message);
         ident
+    }
+
+    pub fn messages(&self) -> impl Iterator<Item = &Message> {
+        self.0.values().flatten()
     }
 }

@@ -700,6 +700,7 @@ version = "0.1.0"
 dependencies = [
  "flexstr",
  "heck",
+ "proc-macro2",
  "prost-build",
  "prost-reflect",
  "quote",

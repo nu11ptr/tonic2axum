@@ -9,8 +9,8 @@ service Greeter {
     // Sends a greeting
     rpc SayHello (HelloRequest) returns (HelloReply) {
         option (google.api.http) = {
-          get: "/hello/{name}"
-          body: "*"
+          get: "/hello/{first_name}"
+          body: "last_name"
         };
     }
   }
