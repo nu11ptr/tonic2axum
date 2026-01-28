@@ -943,6 +943,7 @@ dependencies = [
  "prost-reflect",
  "quote",
  "syn",
+ "tonic-prost-build",
 ]
 
 [[package]]

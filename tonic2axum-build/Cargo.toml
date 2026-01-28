@@ -78,3 +78,7 @@ default-features = false
 version = "2"
 default-features = false
 features = ["extra-traits"]
+
+[dependencies.tonic-prost-build]
+version = "0.14"
+default-features = false
