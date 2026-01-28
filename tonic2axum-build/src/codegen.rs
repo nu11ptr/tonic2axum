@@ -370,7 +370,7 @@ impl Generator {
                     let func_parts = FunctionParts::new(&method_details, input_type);
                     let req = if func_parts.verbatim_request() {
                         quote! { req__.0 }
-                    } else if func_parts.empty_request() && input_type == "()" {
+                    } else if func_parts.empty_request() {
                         quote! { () }
                     } else {
                         quote! { req__ }
