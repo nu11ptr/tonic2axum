@@ -117,6 +117,15 @@ impl Builder {
         Ok(())
     }
 
+    pub fn compile_protos_and_gen_code(
+        mut self,
+        protos: &[impl AsRef<Path>],
+        includes: &[impl AsRef<Path>],
+    ) -> Result<(), Box<dyn Error>> {
+        let (fds, fds_bytes) = self.compile_protos(protos, includes)?;
+        self.generate_code(fds, fds_bytes)
+    }
+
     fn make_service_generator(
         tonic_builder: tonic_prost_build::Builder,
         fds_bytes: Vec<u8>,
