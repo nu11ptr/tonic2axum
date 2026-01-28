@@ -8,8 +8,8 @@ use prost_reflect::{DescriptorPool, DynamicMessage};
 use quote::{ToTokens as _, format_ident, quote};
 
 use crate::{
-    HttpOptions, StateType,
-    http::{MessageDetails, MessageHandling, MethodDetails},
+    StateType,
+    http::{HttpOptions, MessageDetails, MessageHandling, MethodDetails},
     message::{ExistingMessages, Field, Message, NewMessages},
 };
 
