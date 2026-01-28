@@ -236,6 +236,14 @@ impl FunctionParts {
             })
         }
     }
+
+    pub fn verbatim_request(&self) -> bool {
+        self.body_extractor.is_some() && self.request_builder.is_none()
+    }
+
+    pub fn empty_request(&self) -> bool {
+        self.body_extractor.is_none() && self.request_builder.is_none()
+    }
 }
 
 // *** Generator ***
@@ -357,12 +365,20 @@ impl Generator {
                     &mut self.new_messages,
                 )? {
                     // Build the function
+                    let func_parts = FunctionParts::new(&method_details, &method.input_type);
+                    let req = if func_parts.verbatim_request() {
+                        quote! { req__.0 }
+                    } else if func_parts.empty_request() {
+                        quote! { () }
+                    } else {
+                        quote! { req__ }
+                    };
                     let FunctionParts {
                         path_extractor,
                         query_extractor,
                         body_extractor,
                         request_builder,
-                    } = FunctionParts::new(&method_details, &method.input_type);
+                    } = func_parts;
                     let func_name = ident(&method.name);
                     let func_comments = method.comments.leading.join("\n");
                     let state_type = &service_type.handler_type_name;
@@ -379,7 +395,7 @@ impl Generator {
                             #body_extractor
                         ) -> http::Response<Body> {
                             #request_builder
-                            let req__ = tonic2axum::make_request(headers__, extensions__, req__);
+                            let req__ = tonic2axum::make_request(headers__, extensions__, #req);
                             tonic2axum::make_response(state__.#func_name(req__).await)
                         }
                     };
