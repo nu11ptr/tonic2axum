@@ -1,25 +1,21 @@
 use std::{collections::HashMap, error::Error, mem};
 
 use flexstr::LocalStr;
-use quote::{ToTokens, format_ident};
+use quote::ToTokens;
 
 // *** Message ***
 
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     pub name: LocalStr,
-    pub ident: syn::Ident,
     fields: Vec<Field>,
     field_count: usize,
 }
 
 impl Message {
-    pub fn new(ident: syn::Ident) -> Self {
-        let name: LocalStr = ident.to_string().into();
-        let name = name.optimize();
+    pub fn new(name: LocalStr) -> Self {
         Self {
             name,
-            ident,
             fields: Vec::new(),
             field_count: 0,
         }
@@ -109,9 +105,7 @@ pub(crate) struct ExistingMessages(
 
 impl ExistingMessages {
     pub fn add_message(&mut self, message: Message) {
-        let name_str: LocalStr = message.ident.to_string().into();
-        let name_str = name_str.optimize();
-        self.0.insert(name_str, message);
+        self.0.insert(message.name.clone(), message);
     }
 
     pub fn parse_source(&mut self, src: &str) -> Result<(), Box<dyn Error>> {
@@ -119,7 +113,9 @@ impl ExistingMessages {
 
         for item in file.items {
             if let syn::Item::Struct(struct_) = item {
-                let mut message = Message::new(struct_.ident);
+                let name: LocalStr = struct_.ident.to_string().into();
+                let name = name.optimize();
+                let mut message = Message::new(name);
 
                 for field in struct_.fields {
                     if let Some(ident) = field.ident {
@@ -131,6 +127,9 @@ impl ExistingMessages {
                 self.add_message(message);
             }
         }
+
+        // Add a special message for the empty request
+        self.add_message(Message::new("()".into()));
 
         Ok(())
     }
@@ -153,22 +152,25 @@ impl NewMessages {
         &mut self,
         input_message_name: LocalStr,
         fields: Vec<Field>,
-    ) -> syn::Ident {
+    ) -> LocalStr {
         // Find messages for this input message name
         let messages = self.0.entry(input_message_name.clone()).or_default();
 
         // Try to find a matching message first before creating a new one. Return the existing message if found.
         for message in messages.iter() {
             if message.same_fields(&fields) {
-                return message.ident.clone();
+                return message.name.clone();
             }
         }
 
         // Create a new message if no matching message was found (existing message is unnumbered, so second number is 2)
         let suffix_num = messages.len() + 2;
-        let mut message = Message::new(format_ident!("{}{}", &*input_message_name, suffix_num));
+        let name: LocalStr = format!("{}{}__", &*input_message_name, suffix_num).into();
+        let name = name.optimize();
+
+        let mut message = Message::new(name);
         message.add_fields(fields);
-        let ident = message.ident.clone();
+        let ident = message.name.clone();
         messages.push(message);
         ident
     }

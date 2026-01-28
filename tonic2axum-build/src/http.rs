@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, error::Error};
 
 use flexstr::{LocalStr, str::LocalStrRef};
+use proc_macro2::Span;
 use prost_reflect::{DynamicMessage, Value};
 
 use crate::message::{ExistingMessages, Field, Message, NewMessages};
@@ -41,6 +42,16 @@ pub(crate) enum MessageHandling {
 pub(crate) struct MessageDetails {
     pub type_name: syn::Ident,
     pub handling: MessageHandling,
+}
+
+impl MessageDetails {
+    pub fn new(type_name: &str, handling: MessageHandling) -> Self {
+        let type_name = syn::Ident::new(type_name, Span::call_site());
+        Self {
+            type_name,
+            handling,
+        }
+    }
 }
 
 // *** MethodDetails ***
@@ -102,19 +113,19 @@ impl HttpOption {
 
                 // If nothing is bound by the path and the body captures everythign else, use the message itself
                 if intact {
-                    Ok(Some(MessageDetails {
-                        type_name: message.ident.clone(),
-                        handling: MessageHandling::VerbatimRequest,
-                    }))
+                    Ok(Some(MessageDetails::new(
+                        &message.name,
+                        MessageHandling::VerbatimRequest,
+                    )))
                 } else {
                     // Build a new struct with the remaining fields
                     let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
                     let type_name =
                         new_messages.get_or_create_message(message.name.clone(), fields);
-                    Ok(Some(MessageDetails {
-                        type_name,
-                        handling: MessageHandling::ExtractFields(extracted_fields),
-                    }))
+                    Ok(Some(MessageDetails::new(
+                        &type_name,
+                        MessageHandling::ExtractFields(extracted_fields),
+                    )))
                 }
             }
             // Single field body
@@ -130,24 +141,24 @@ impl HttpOption {
                 let type_name = field.type_name.as_ref();
                 match existing_messages.get_message(type_name) {
                     // Yes, use the existing (nested) message
-                    Some(message) => Ok(Some(MessageDetails {
-                        type_name: message.ident.clone(),
-                        handling: MessageHandling::ExtractSingleField(field.ident.clone()),
-                    })),
+                    Some(message) => Ok(Some(MessageDetails::new(
+                        &message.name,
+                        MessageHandling::ExtractSingleField(field.ident.clone()),
+                    ))),
                     // No, but this is the only field it has, so use the message itself
-                    None if intact_single_field => Ok(Some(MessageDetails {
-                        type_name: message.ident.clone(),
-                        handling: MessageHandling::VerbatimRequest,
-                    })),
+                    None if intact_single_field => Ok(Some(MessageDetails::new(
+                        &message.name,
+                        MessageHandling::VerbatimRequest,
+                    ))),
                     // No, but it is either not intact or has multiple fields, so we need to build a new single field struct
                     None => {
                         let extracted_fields = vec![field.ident.clone()];
                         let type_name =
                             new_messages.get_or_create_message(message.name.clone(), vec![field]);
-                        Ok(Some(MessageDetails {
-                            type_name,
-                            handling: MessageHandling::ExtractFields(extracted_fields),
-                        }))
+                        Ok(Some(MessageDetails::new(
+                            &type_name,
+                            MessageHandling::ExtractFields(extracted_fields),
+                        )))
                     }
                 }
             }
@@ -166,19 +177,19 @@ impl HttpOption {
             None
         } else if message.is_intact() {
             // Use the message itself
-            Some(MessageDetails {
-                type_name: message.ident.clone(),
-                handling: MessageHandling::VerbatimRequest,
-            })
+            Some(MessageDetails::new(
+                &message.name,
+                MessageHandling::VerbatimRequest,
+            ))
         } else {
             // Build a new struct with the remaining fields
             let fields = message.remove_all_fields();
             let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
             let type_name = new_messages.get_or_create_message(message.name.clone(), fields);
-            Some(MessageDetails {
-                type_name,
-                handling: MessageHandling::ExtractFields(extracted_fields),
-            })
+            Some(MessageDetails::new(
+                &type_name,
+                MessageHandling::ExtractFields(extracted_fields),
+            ))
         }
     }
 

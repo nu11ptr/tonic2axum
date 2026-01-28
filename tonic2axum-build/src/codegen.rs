@@ -339,7 +339,7 @@ impl Generator {
                 pub #field_name: #field_type
             }
         });
-        let message_name = &message.ident;
+        let message_name = ident(message.name.as_ref());
         quote! {
             #[derive(serde::Deserialize)]
             pub struct #message_name {
@@ -355,7 +355,9 @@ impl Generator {
         service_type: &ServiceType,
         service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
-        match self.existing_messages.get_message(&method.input_type) {
+        let input_type = &method.input_type;
+
+        match self.existing_messages.get_message(input_type) {
             Some(message) => {
                 if let Some(method_details) = self.options.calculate_messages(
                     service_name,
@@ -365,10 +367,10 @@ impl Generator {
                     &mut self.new_messages,
                 )? {
                     // Build the function
-                    let func_parts = FunctionParts::new(&method_details, &method.input_type);
+                    let func_parts = FunctionParts::new(&method_details, input_type);
                     let req = if func_parts.verbatim_request() {
                         quote! { req__.0 }
-                    } else if func_parts.empty_request() {
+                    } else if func_parts.empty_request() && input_type == "()" {
                         quote! { () }
                     } else {
                         quote! { req__ }
