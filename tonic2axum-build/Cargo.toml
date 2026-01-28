@@ -1,6 +1,6 @@
 [package]
 name = "tonic2axum-build"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Scott Meeuwsen <smeeuwsen@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "A code generator that builds a REST reverse proxy (Axum) to gRPC services (Tonic)"
