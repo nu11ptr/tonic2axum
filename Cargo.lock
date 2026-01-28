@@ -932,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "tonic2axum-build"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "flexstr",
  "heck",
