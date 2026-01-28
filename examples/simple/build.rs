@@ -2,7 +2,7 @@ use std::error::Error;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // 1. tonic_prost_build: Configure the Builder
-    let tonic_builder = tonic_prost_build::configure().build_client(false);
+    let tonic_builder = tonic2axum_build::configure_tonic().build_client(false);
 
     // 2. tonic2axum_build: Configure the Builder
     let mut builder = tonic2axum_build::Builder::new().tonic_builder(tonic_builder);
@@ -16,5 +16,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build(&[".hello.v1"])?;
 
     // 5. tonic2axum_build: Generate the code (Prost, Tonic, and Axum)
-    builder.generate_code(fds, fds_bytes)
+    builder.compile_fds(fds, fds_bytes)
 }

@@ -748,12 +748,10 @@ dependencies = [
  "http",
  "pbjson-build",
  "prost",
- "prost-build",
  "serde",
  "tokio",
  "tonic",
  "tonic-prost",
- "tonic-prost-build",
  "tonic2axum",
  "tonic2axum-build",
 ]
