@@ -29,6 +29,7 @@ pub(crate) struct ServiceType {
     pub handler_type_name: TokenStream,
     pub router_type_name: TokenStream,
     pub generics: Option<ServiceTypeGenerics>,
+    pub use_trait: Option<TokenStream>,
 }
 
 impl ServiceType {
@@ -45,23 +46,28 @@ impl ServiceType {
         match state_type {
             // Custom type
             Some(StateType::Custom(type_)) => {
-                let type_name = ident(type_).into_token_stream();
+                let type_name = quote! { #type_ };
+                let fq_trait_name = make_fq_trait_name(service_name);
+                let use_trait = Some(quote! { use super::#fq_trait_name; });
+
                 Self {
                     handler_type_name: type_name.clone(),
                     router_type_name: type_name,
                     generics: None,
+                    use_trait,
                 }
             }
             // Trait object
             Some(StateType::ArcTraitObj) => {
                 let fq_trait_name = make_fq_trait_name(service_name);
-                let router_type_name = quote! { Arc<dyn #fq_trait_name> };
+                let router_type_name = quote! { std::sync::Arc<dyn #fq_trait_name> };
                 let handler_type_name = quote! { Arc<dyn super::#fq_trait_name> };
 
                 Self {
                     router_type_name,
                     handler_type_name,
                     generics: None,
+                    use_trait: None,
                 }
             }
             // Generic by default
@@ -84,6 +90,7 @@ impl ServiceType {
                     handler_type_name: type_name.clone(),
                     router_type_name: type_name,
                     generics: Some(generics),
+                    use_trait: None,
                 }
             }
         }
@@ -311,6 +318,8 @@ impl Generator {
             }
         }
 
+        let use_trait = service_type.use_trait.as_ref();
+
         let module = quote! {
             /// Generated axum handlers.
             pub mod #service_mod_name {
@@ -319,6 +328,8 @@ impl Generator {
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
+                use std::sync::Arc;
+                #use_trait
 
                 #(#functions)*
             }
@@ -370,8 +381,11 @@ impl Generator {
                     let func_parts = FunctionParts::new(&method_details, input_type);
                     let req = if func_parts.verbatim_request() {
                         quote! { req__.0 }
-                    } else if func_parts.empty_request() {
+                    } else if func_parts.empty_request() && input_type == "()" {
                         quote! { () }
+                    } else if func_parts.empty_request() && input_type != "()" {
+                        let input_type = ident(input_type);
+                        quote! { super::#input_type {} }
                     } else {
                         quote! { req__ }
                     };
