@@ -15,8 +15,11 @@ use tonic::{
 
 // Alternative designs to consider (that are less hacky):
 // 1. Use JsonLines<T>, but use something like bitcode in Body to serialize, and then deserialize the T in the Decoder.
+//
 // 2. Use a raw axum Body as the request, return the bytes from BodyDataStream in Body trait (using a bytes::Chain to
 // prepend a gRPC header), do JSON deserialization in the Decoder.
+// Update: Actually, #2 is probably not possible without tracking the JSON lines and buffering the input since we would need to
+// know how long the input is to prepend the gRPC header.
 
 /// Converts a JSON Lines request into a Tonic streaming request
 pub fn make_stream_request<T: Send + 'static>(

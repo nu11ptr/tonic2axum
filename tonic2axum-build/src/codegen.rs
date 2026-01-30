@@ -125,22 +125,38 @@ pub(crate) struct FunctionParts {
 }
 
 impl FunctionParts {
-    pub fn new(method_details: &MethodDetails, input_type: &str) -> Self {
+    pub fn new(
+        method_name: &str,
+        method_details: &MethodDetails,
+        input_type: &str,
+        client_streaming: bool,
+    ) -> Result<Self, Box<dyn Error>> {
         let mut extracted_fields = Vec::new();
 
         let path_extractor =
             Self::make_path_extractor(&method_details.path_fields, &mut extracted_fields);
         let query_extractor =
             Self::make_query_extractor(&method_details.query_str, &mut extracted_fields);
-        let body_extractor = Self::make_body_extractor(&method_details.body, &mut extracted_fields);
+        if client_streaming && !extracted_fields.is_empty() {
+            return Err(format!(
+                "Client streaming methods are not supported with query or path parameters: (Method: {})",
+                method_name
+            )
+            .into());
+        }
+        let body_extractor = Self::make_body_extractor(
+            &method_details.body,
+            &mut extracted_fields,
+            client_streaming,
+        );
         let request_builder = Self::make_request_builder(&extracted_fields, input_type);
 
-        Self {
+        Ok(Self {
             path_extractor,
             query_extractor,
             body_extractor,
             request_builder,
-        }
+        })
     }
 
     fn make_path_extractor(
@@ -198,6 +214,7 @@ impl FunctionParts {
     fn make_body_extractor(
         body: &Option<MessageDetails>,
         extracted_fields: &mut Vec<syn::Ident>,
+        client_streaming: bool,
     ) -> Option<TokenStream> {
         match body {
             Some(message_details) => match &message_details {
@@ -219,6 +236,12 @@ impl FunctionParts {
                         Json(super::#type_name { #field }): Json<super::#type_name>,
                     })
                 }
+                MessageDetails {
+                    type_name,
+                    handling: MessageHandling::VerbatimRequest,
+                } if client_streaming => Some(quote! {
+                    req__: JsonLines<super::#type_name>,
+                }),
                 MessageDetails {
                     type_name,
                     handling: MessageHandling::VerbatimRequest,
@@ -377,8 +400,14 @@ impl Generator {
                     &self.existing_messages,
                     &mut self.new_messages,
                 )? {
-                    // Build the function
-                    let func_parts = FunctionParts::new(&method_details, input_type);
+                    // Make the function parts from the method details
+                    let func_parts = FunctionParts::new(
+                        &method.name,
+                        &method_details,
+                        input_type,
+                        method.client_streaming,
+                    )?;
+
                     let req = if func_parts.verbatim_request() {
                         quote! { req__.0 }
                     } else if func_parts.empty_request() && input_type == "()" {
@@ -389,16 +418,30 @@ impl Generator {
                     } else {
                         quote! { req__ }
                     };
+
                     let FunctionParts {
                         path_extractor,
                         query_extractor,
                         body_extractor,
                         request_builder,
                     } = func_parts;
+
+                    // Build the function
                     let func_name = ident(&method.name);
                     let func_comments = method.comments.leading.join("\n");
                     let state_type = &service_type.handler_type_name;
                     let handler_generics = service_type.handler_generics();
+
+                    let request_func_name = if method.client_streaming {
+                        quote! { make_stream_request }
+                    } else {
+                        quote! { make_request }
+                    };
+                    let response_func_name = if method.server_streaming {
+                        quote! { make_stream_response }
+                    } else {
+                        quote! { make_response }
+                    };
 
                     let func = quote! {
                         #[doc = #func_comments]
@@ -411,8 +454,8 @@ impl Generator {
                             #body_extractor
                         ) -> http::Response<Body> {
                             #request_builder
-                            let req__ = tonic2axum::make_request(headers__, extensions__, #req);
-                            tonic2axum::make_response(state__.#func_name(req__).await)
+                            let req__ = tonic2axum::#request_func_name(headers__, extensions__, #req);
+                            tonic2axum::#response_func_name(state__.#func_name(req__).await)
                         }
                     };
 
