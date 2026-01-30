@@ -13,7 +13,7 @@ const DEFAULT_FDS_FILE_NAME: &str = "fds.bin";
 
 /// The state type for a given service.
 pub enum StateType {
-    Custom(syn::Type),
+    Custom(Box<syn::Type>),
     ArcTraitObj,
 }
 
@@ -47,7 +47,7 @@ impl Builder {
         let name: LocalStrRef = service_name.as_ref().into();
         let type_: syn::Type = syn::parse_str(state_type.as_ref())?;
         self.state_types
-            .insert(name.into_owned(), StateType::Custom(type_));
+            .insert(name.into_owned(), StateType::Custom(Box::new(type_)));
         Ok(self)
     }
 
