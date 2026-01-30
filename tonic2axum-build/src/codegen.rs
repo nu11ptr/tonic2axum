@@ -426,9 +426,14 @@ impl Generator {
                         request_builder,
                     } = func_parts;
 
-                    // Build the function
                     let func_name = ident(&method.name);
                     let func_comments = method.comments.leading.join("\n");
+                    let func_comments = if func_comments.is_empty() {
+                        None
+                    } else {
+                        Some(quote! { #[doc = #func_comments] })
+                    };
+
                     let state_type = &service_type.handler_type_name;
                     let handler_generics = service_type.handler_generics();
 
@@ -444,7 +449,7 @@ impl Generator {
                     };
 
                     let func = quote! {
-                        #[doc = #func_comments]
+                        #func_comments
                         pub async fn #func_name #handler_generics(
                             State(state__): State<#state_type>,
                             #path_extractor
