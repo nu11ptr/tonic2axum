@@ -18,18 +18,30 @@ pub enum StateType {
 }
 
 /// The builder for the tonic2axum code generator.
-#[derive(Default)]
 pub struct Builder {
     fds_path: Option<PathBuf>,
     state_types: HashMap<LocalStr, StateType>,
     prost_config: Option<ProstConfig>,
     tonic_builder: Option<TonicBuilder>,
+    skip_bidi_streaming: bool,
 }
 
 impl Builder {
     /// Create a new builder with default values.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            fds_path: None,
+            state_types: HashMap::new(),
+            prost_config: None,
+            tonic_builder: None,
+            skip_bidi_streaming: true,
+        }
+    }
+
+    /// Set whether to ignore bidirectional streaming methods (default: true).
+    pub fn skip_bidi_streaming(mut self, ignore: bool) -> Self {
+        self.skip_bidi_streaming = ignore;
+        self
     }
 
     /// Set the path to the file descriptor set.
@@ -122,8 +134,12 @@ impl Builder {
         let prost_config = self.prost_config.as_mut().unwrap();
         let tonic_builder = self.tonic_builder.unwrap();
 
-        let service_generator =
-            Self::make_service_generator(tonic_builder, fds_bytes, self.state_types)?;
+        let service_generator = Self::make_service_generator(
+            tonic_builder,
+            fds_bytes,
+            self.state_types,
+            self.skip_bidi_streaming,
+        )?;
         prost_config.service_generator(service_generator);
         prost_config.compile_fds(fds)?;
         Ok(())
@@ -143,11 +159,19 @@ impl Builder {
         tonic_builder: TonicBuilder,
         fds_bytes: Vec<u8>,
         state_types: HashMap<LocalStr, StateType>,
+        skip_bidi_streaming: bool,
     ) -> Result<Box<dyn ServiceGenerator>, Box<dyn Error>> {
         Ok(Box::new(Generator::new(
             tonic_builder.service_generator(),
             fds_bytes,
             state_types,
+            skip_bidi_streaming,
         )?))
+    }
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -286,6 +286,7 @@ pub(crate) struct Generator {
     existing_messages: ExistingMessages,
     modules: Vec<TokenStream>,
     routers: Vec<TokenStream>,
+    skip_bidi_streaming: bool,
 }
 
 impl Generator {
@@ -293,6 +294,7 @@ impl Generator {
         service_generator: Box<dyn ServiceGenerator>,
         bytes: Vec<u8>,
         state_types: HashMap<LocalStr, StateType>,
+        skip_bidi_streaming: bool,
     ) -> Result<Self, Box<dyn Error>> {
         let dynamic_fds = Self::decode_fds(&bytes)?;
         let mut options = HttpOptions::default();
@@ -306,6 +308,7 @@ impl Generator {
             existing_messages: ExistingMessages::default(),
             modules: Vec::new(),
             routers: Vec::new(),
+            skip_bidi_streaming,
         })
     }
 
@@ -390,6 +393,11 @@ impl Generator {
         service_type: &ServiceType,
         service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
+        if self.skip_bidi_streaming && method.client_streaming && method.server_streaming {
+            println!("Ignoring bidirectional streaming method: {}", method.name);
+            return Ok(None);
+        }
+
         let input_type = &method.input_type;
 
         match self.existing_messages.get_message(input_type) {
