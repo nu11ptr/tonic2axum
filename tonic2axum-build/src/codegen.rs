@@ -351,6 +351,7 @@ impl Generator {
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
+                use axum_extra::json_lines::JsonLines;
                 use std::sync::Arc;
                 #use_trait
 
@@ -408,7 +409,7 @@ impl Generator {
                         method.client_streaming,
                     )?;
 
-                    let req = if func_parts.verbatim_request() {
+                    let req = if func_parts.verbatim_request() && !method.client_streaming {
                         quote! { req__.0 }
                     } else if func_parts.empty_request() && input_type == "()" {
                         quote! { () }

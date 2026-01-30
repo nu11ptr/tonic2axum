@@ -1,0 +1,61 @@
+[package]
+name = "streaming"
+version = "0.1.0"
+edition = "2024"
+
+# Runtime dependencies
+
+[dependencies.axum]
+version = "0.8"
+default-features = false
+features = ["http1", "http2", "json", "query", "tokio"]
+
+[dependencies.axum-extra]
+version = "0.12"
+default-features = false
+features = ["json-lines"]
+
+[dependencies.futures-util]
+version = "0.3"
+default-features = false
+
+[dependencies.http]
+version = "1"
+default-features = false
+
+[dependencies.prost]
+version = "0.14"
+default-features = false
+features = ["derive", "std"]
+
+[dependencies.serde]
+version = "1"
+default-features = false
+features = ["derive"]
+
+[dependencies.tokio]
+version = "1"
+default-features = false
+features = ["macros", "net", "rt-multi-thread"]
+
+[dependencies.tonic]
+version = "0.14"
+default-features = false
+features = ["codegen", "router"]
+
+[dependencies.tonic-prost]
+version = "0.14"
+default-features = false
+
+[dependencies.tonic2axum]
+path = "../../tonic2axum"
+features = ["client-streaming", "server-streaming"]
+
+# Build dependencies
+
+[build-dependencies.pbjson-build]
+version = "0.9"
+default-features = false
+
+[build-dependencies.tonic2axum-build]
+path = "../../tonic2axum-build"
