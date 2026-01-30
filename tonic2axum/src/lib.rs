@@ -1,9 +1,18 @@
 use std::mem;
 
 use axum::Json;
-use axum::response::IntoResponse;
+use axum::response::IntoResponse as _;
 use serde::Serialize;
 use tonic::metadata::MetadataMap;
+
+#[cfg(any(feature = "client-streaming", feature = "server-streaming"))]
+mod streaming;
+
+#[cfg(feature = "server-streaming")]
+pub use streaming::make_stream_response;
+
+#[cfg(feature = "client-streaming")]
+pub use streaming::make_stream_request;
 
 /// Converts the parts of an HTTP request into a Tonic request
 pub fn make_request<T>(

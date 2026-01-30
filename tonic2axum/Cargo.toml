@@ -15,14 +15,46 @@ categories = [
 readme = "README.md"
 edition = "2024"
 
+[features]
+default = []
+server-streaming = ["dep:axum-extra", "dep:futures-core"]
+client-streaming = [
+    "dep:axum-extra",
+    "dep:futures-core",
+    "dep:bytes",
+    "dep:http-body",
+    "tonic/server",
+]
+
 [dependencies.axum]
 version = "0.8"
 default-features = false
 features = ["json"]
 
+[dependencies.axum-extra]
+version = "0.12"
+default-features = false
+features = ["json-lines"]
+optional = true
+
+[dependencies.bytes]
+version = "1"
+default-features = false
+optional = true
+
+[dependencies.futures-core]
+version = "0.3"
+default-features = false
+optional = true
+
 [dependencies.http]
 version = "1"
 default-features = false
+
+[dependencies.http-body]
+version = "1"
+default-features = false
+optional = true
 
 [dependencies.serde]
 version = "1"
