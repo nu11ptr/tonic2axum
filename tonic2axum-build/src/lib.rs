@@ -2,7 +2,6 @@ mod builder;
 mod codegen;
 mod http;
 mod message;
-//mod sample;
 
 pub use builder::{Builder, StateType};
 pub use prost_build::Config as ProstConfig;
