@@ -179,7 +179,12 @@ impl Generator {
             if body {
                 quote! { #[derive(serde::Deserialize, utoipa::ToSchema)] }
             } else {
-                quote! { #[derive(serde::Deserialize, utoipa::IntoParams)] }
+                // The into_params attribute is needed to due to: https://github.com/juhaku/utoipa/issues/728
+                // I suspect this is a bug, but not 100% sure.
+                quote! {
+                    #[derive(serde::Deserialize, utoipa::IntoParams)]
+                    #[into_params(parameter_in = Query)]
+                }
             }
         } else {
             quote! { #[derive(serde::Deserialize)] }
