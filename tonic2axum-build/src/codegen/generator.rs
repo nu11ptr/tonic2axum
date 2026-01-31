@@ -157,12 +157,21 @@ impl Generator {
         let fields = message.fields().iter().map(|field| {
             let field_name = &field.ident;
             let field_type = &field.type_;
+            let field_doc_comments = field.doc_comments.comments().iter().map(|comment| {
+                let comment = comment.as_ref();
+                quote! { #[doc = #comment] }
+            });
             quote! {
+                #(#field_doc_comments)*
                 pub #field_name: #field_type
             }
         });
         let message_name = ident(message.name.as_ref());
 
+        let msg_doc_comments = message.doc_comments.comments().iter().map(|comment| {
+            let comment = comment.as_ref();
+            quote! { #[doc = #comment] }
+        });
         let derive_attributes = if self.config.generate_openapi {
             if body {
                 quote! { #[derive(serde::Deserialize, utoipa::ToSchema)] }
@@ -173,6 +182,7 @@ impl Generator {
             quote! { #[derive(serde::Deserialize)] }
         };
         quote! {
+            #(#msg_doc_comments)*
             #derive_attributes
             pub struct #message_name {
                 #(#fields),*

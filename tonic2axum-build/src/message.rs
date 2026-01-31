@@ -1,23 +1,86 @@
-use std::{collections::HashMap, error::Error, mem};
+use std::{collections::HashMap, error::Error, fmt, mem};
 
 use flexstr::LocalStr;
 use quote::ToTokens;
 
 use crate::builder::GeneratorConfig;
 
+// *** DocComment ***
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DocComments(Vec<LocalStr>);
+
+impl DocComments {
+    pub fn from_struct(item: &syn::ItemStruct) -> Self {
+        Self(Self::extract_doc_comments(&item.attrs))
+    }
+
+    pub fn from_field(field: &syn::Field) -> Self {
+        Self(Self::extract_doc_comments(&field.attrs))
+    }
+
+    fn extract_doc_comments(attrs: &[syn::Attribute]) -> Vec<LocalStr> {
+        attrs
+            .iter()
+            .filter_map(|attr| {
+                // Check if it's a doc comment attribute
+                if attr.path().is_ident("doc") {
+                    // Doc comments are stored as MetaNameValue: #[doc = "value"]
+                    // In syn v2, we can parse the meta directly
+                    match &attr.meta {
+                        syn::Meta::NameValue(meta) => {
+                            // The value is an Expr, which for doc comments is always a string literal
+                            match &meta.value {
+                                syn::Expr::Lit(syn::ExprLit {
+                                    lit: syn::Lit::Str(lit_str),
+                                    ..
+                                }) => Some(LocalStr::from(lit_str.value()).optimize()),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn comments(&self) -> &[LocalStr] {
+        &self.0
+    }
+}
+
+impl fmt::Display for DocComments {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut first = true;
+        for comment in &self.0 {
+            if !first {
+                write!(f, "\n")?;
+            }
+            write!(f, "{}", comment.as_ref())?;
+            first = false;
+        }
+        Ok(())
+    }
+}
+
 // *** Message ***
 
 #[derive(Clone, Debug)]
 pub(crate) struct Message {
     pub name: LocalStr,
+    pub doc_comments: DocComments,
     fields: Vec<Field>,
     field_count: usize,
 }
 
 impl Message {
-    pub fn new(name: LocalStr) -> Self {
+    pub fn new(name: LocalStr, doc_comments: DocComments) -> Self {
         Self {
             name,
+            doc_comments,
             fields: Vec::new(),
             field_count: 0,
         }
@@ -74,10 +137,11 @@ pub(crate) struct Field {
     pub ident: syn::Ident,
     pub type_: syn::Type,
     pub type_name: LocalStr,
+    pub doc_comments: DocComments,
 }
 
 impl Field {
-    pub fn new(ident: syn::Ident, type_: syn::Type) -> Self {
+    pub fn new(ident: syn::Ident, type_: syn::Type, doc_comments: DocComments) -> Self {
         let name: LocalStr = ident.to_string().into();
         let name = name.optimize();
         let type_name: LocalStr = type_.to_token_stream().to_string().into();
@@ -87,6 +151,7 @@ impl Field {
             ident,
             type_,
             type_name,
+            doc_comments,
         }
     }
 }
@@ -117,12 +182,14 @@ impl ExistingMessages {
             if let syn::Item::Struct(struct_) = item {
                 let name: LocalStr = struct_.ident.to_string().into();
                 let name = name.optimize();
-                let mut message = Message::new(name);
+                let doc_comments = DocComments::from_struct(&struct_);
+                let mut message = Message::new(name, doc_comments);
 
                 for field in struct_.fields {
+                    let doc_comments = DocComments::from_field(&field);
                     if let Some(ident) = field.ident {
                         let type_ = field.ty;
-                        message.add_field(Field::new(ident, type_));
+                        message.add_field(Field::new(ident, type_, doc_comments));
                     }
                 }
 
@@ -131,7 +198,7 @@ impl ExistingMessages {
         }
 
         // Add a special message for the empty request
-        self.add_message(Message::new("()".into()));
+        self.add_message(Message::new("()".into(), DocComments::default()));
 
         Ok(())
     }
@@ -154,6 +221,7 @@ impl NewMessages {
     fn get_or_create_message(
         messages: &mut HashMap<LocalStr, Vec<Message>>,
         input_message_name: LocalStr,
+        msg_doc_comments: &DocComments,
         fields: Vec<Field>,
         suffix: &str,
         type_suffix: &str,
@@ -183,7 +251,7 @@ impl NewMessages {
         };
         let name = name.optimize();
 
-        let mut message = Message::new(name);
+        let mut message = Message::new(name, msg_doc_comments.clone());
         message.add_fields(fields);
         let message_name = message.name.clone();
         messages.push(message);
@@ -193,12 +261,14 @@ impl NewMessages {
     pub fn get_or_create_body_message(
         &mut self,
         input_message_name: LocalStr,
+        msg_doc_comments: &DocComments,
         fields: Vec<Field>,
         config: &GeneratorConfig,
     ) -> LocalStr {
         Self::get_or_create_message(
             &mut self.body_messages,
             input_message_name,
+            msg_doc_comments,
             fields,
             config.body_message_suffix,
             config.type_suffix,
@@ -208,12 +278,14 @@ impl NewMessages {
     pub fn get_or_create_query_message(
         &mut self,
         input_message_name: LocalStr,
+        msg_doc_comments: &DocComments,
         fields: Vec<Field>,
         config: &GeneratorConfig,
     ) -> LocalStr {
         Self::get_or_create_message(
             &mut self.query_messages,
             input_message_name,
+            msg_doc_comments,
             fields,
             config.query_message_suffix,
             config.type_suffix,

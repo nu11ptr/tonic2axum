@@ -126,6 +126,7 @@ impl HttpOption {
                     let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
                     let type_name = new_messages.get_or_create_body_message(
                         message.name.clone(),
+                        &message.doc_comments,
                         fields,
                         config,
                     );
@@ -162,6 +163,7 @@ impl HttpOption {
                         let extracted_fields = vec![field.ident.clone()];
                         let type_name = new_messages.get_or_create_body_message(
                             message.name.clone(),
+                            &message.doc_comments,
                             vec![field],
                             config,
                         );
@@ -196,8 +198,12 @@ impl HttpOption {
             // Build a new struct with the remaining fields
             let fields = message.remove_all_fields();
             let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
-            let type_name =
-                new_messages.get_or_create_query_message(message.name.clone(), fields, config);
+            let type_name = new_messages.get_or_create_query_message(
+                message.name.clone(),
+                &message.doc_comments,
+                fields,
+                config,
+            );
             Some(MessageDetails::new(
                 &type_name,
                 MessageHandling::ExtractFields(extracted_fields),
