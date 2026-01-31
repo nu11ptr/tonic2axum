@@ -20,7 +20,6 @@ pub(crate) struct Generator {
     new_messages: NewMessages,
     existing_messages: ExistingMessages,
     modules: Vec<TokenStream>,
-    routers: Vec<TokenStream>,
     value_names: ValueNames,
 
     config: GeneratorConfig,
@@ -42,7 +41,6 @@ impl Generator {
             new_messages: NewMessages::default(),
             existing_messages: ExistingMessages::default(),
             modules: Vec::new(),
-            routers: Vec::new(),
             value_names: ValueNames::new(config.value_suffix),
             config,
         })
@@ -78,24 +76,27 @@ impl Generator {
             .into());
         }
 
-        let service_mod_name = format_ident!("{}_handlers", service.name.to_snake_case());
-
-        let mut functions = Vec::with_capacity(service.methods.len());
+        let mut handler_funcs = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
         let mut has_client_streaming = false;
 
         for method in &service.methods {
             if let Some((function, route)) =
-                self.generate_func(&service.name, method, &service_type, &service_mod_name)?
+                self.generate_func(&service.name, method, &service_type)?
             {
                 if method.client_streaming {
                     has_client_streaming = true;
                 }
-                functions.push(function);
+                handler_funcs.push(function);
                 routes.push(route);
             }
         }
 
+        let service_mod_name = format_ident!(
+            "{}{}",
+            service.name.to_snake_case(),
+            self.config.service_mod_name_suffix
+        );
         let use_json_lines = if has_client_streaming {
             // This is due to the need to fill in the associated type in the trait object type. This effectively
             // no longer becomes automatic as this option was intended to be. It is now equivalent to using a custom
@@ -113,26 +114,41 @@ impl Generator {
             None
         };
         let use_trait = service_type.use_trait.as_ref();
+        let use_routing = if self.config.generate_openapi {
+            quote! {
+                use utoipa_axum::routes;
+                use utoipa_axum::router::OpenApiRouter;
+            }
+        } else {
+            quote! {
+                use axum::routing::{get, post, put, delete, patch};
+                use axum::Router;
+            }
+        };
+        let router_func = self.generate_router(&service.name, &service_type, routes);
 
         let module = quote! {
-            /// Generated axum handlers.
+            /// Generated axum handlers and router.
             pub mod #service_mod_name {
                 #![allow(unused_imports)]
+
+                use std::sync::Arc;
 
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
                 #use_json_lines
-                use std::sync::Arc;
+                #use_routing
+
                 #use_trait
 
-                #(#functions)*
+                #(#handler_funcs)*
+
+                #router_func
             }
         };
-        let router_func = self.generate_router(&service.name, &service_type, routes);
 
         self.modules.push(module);
-        self.routers.push(router_func);
 
         Ok(())
     }
@@ -169,7 +185,6 @@ impl Generator {
         service_name: &str,
         method: &prost_build::Method,
         service_type: &ServiceType,
-        service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
         let input_type = &method.input_type;
 
@@ -228,7 +243,7 @@ impl Generator {
                             Some(quote! { #[doc = #func_comments] })
                         };
 
-                        let state_type = &service_type.handler_type_name;
+                        let state_type = &service_type.state_type_name;
                         let handler_generics = service_type.handler_generics();
 
                         let request_func_name = if method.client_streaming {
@@ -272,11 +287,11 @@ impl Generator {
                         // Build the route
                         let turbofish = service_type.handler_route_turbofish();
                         let route = if self.config.generate_openapi {
-                            quote! { .routes(routes!(#service_mod_name::#func_name)) }
+                            quote! { .routes(routes!(#func_name)) }
                         } else {
                             let path = method_details.path.as_ref();
                             let method = ident(&method_details.method);
-                            quote! { .route(#path, #method(#service_mod_name::#func_name #turbofish)) }
+                            quote! { .route(#path, #method(#func_name #turbofish)) }
                         };
 
                         Ok(Some((func, route)))
@@ -301,31 +316,20 @@ impl Generator {
         service_type: &ServiceType,
         routes: Vec<TokenStream>,
     ) -> TokenStream {
-        let func_name = format_ident!("make_{}_router", service_name.to_snake_case());
-        let type_name = &service_type.router_type_name;
+        let router_func_name = &self.config.router_func_name;
+        let state_type_name = &service_type.state_type_name;
         let generics = service_type.router_generics();
         let comment = format!(" Axum router for the {service_name} service");
 
-        let (imports, router_type) = if self.config.generate_openapi {
-            (
-                quote! { use utoipa_axum::routes; },
-                quote! { utoipa_axum::router::OpenApiRouter },
-            )
+        let router_type = if self.config.generate_openapi {
+            ident("OpenApiRouter")
         } else {
-            (
-                quote! {
-                    #[allow(unused_imports)]
-                    use axum::routing::{get, post, put, delete, patch};
-                },
-                quote! { axum::Router },
-            )
+            ident("Router")
         };
 
         quote! {
             #[doc = #comment]
-            pub fn #func_name #generics(state: #type_name) -> #router_type {
-                #imports
-
+            pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
                 #router_type::new()
                     #(#routes)*
                     .with_state(state)
@@ -344,15 +348,12 @@ impl Generator {
             .query_messages()
             .map(|message| self.generate_struct(message, false));
         let modules = &self.modules;
-        let routers = &self.routers;
 
         let file = quote! {
             #(#body_structs)*
             #(#query_structs)*
 
             #(#modules)*
-
-            #(#routers)*
         };
 
         buf.push_str(&file.to_string());

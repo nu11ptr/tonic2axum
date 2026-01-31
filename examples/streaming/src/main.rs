@@ -10,8 +10,8 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::greeter::{
     HelloReply, HelloRequest,
+    greeter_axum::make_router,
     greeter_server::{self, GreeterServer},
-    make_greeter_router,
 };
 
 mod greeter {
@@ -59,7 +59,7 @@ async fn main() {
     struct ApiDoc;
 
     // Make a router for the generated REST API (using our greeter above)
-    let rest_router = make_greeter_router(Greeter);
+    let rest_router = make_router(Greeter);
     let (rest_router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/v1", rest_router)
         .split_for_parts();

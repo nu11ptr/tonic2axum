@@ -26,6 +26,7 @@ pub(crate) struct GeneratorConfig {
     pub body_message_suffix: &'static str,
     pub query_message_suffix: &'static str,
     pub router_func_name: syn::Ident,
+    pub service_mod_name_suffix: &'static str,
 }
 
 impl Default for GeneratorConfig {
@@ -38,6 +39,7 @@ impl Default for GeneratorConfig {
             body_message_suffix: "Body",
             query_message_suffix: "Query",
             router_func_name: syn::Ident::new("make_router", Span::call_site()),
+            service_mod_name_suffix: "_axum",
         }
     }
 }
@@ -146,6 +148,14 @@ impl Builder {
     /// It cannot be the same as any of the rpc method names in your proto file or it will conflict.
     pub fn router_func_name(mut self, name: impl AsRef<str>) -> Self {
         self.config.router_func_name = syn::Ident::new(name.as_ref(), Span::call_site());
+        self
+    }
+
+    /// Set the service module name suffix for the generated service modules (default: "_axum").
+    /// It can be empty to avoid the suffix, in which case the module name will be the same as the service name
+    /// in snake case.
+    pub fn service_mod_name_suffix(mut self, suffix: &'static str) -> Self {
+        self.config.service_mod_name_suffix = suffix;
         self
     }
 

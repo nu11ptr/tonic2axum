@@ -47,8 +47,7 @@ pub(crate) struct ServiceTypeGenerics {
 }
 
 pub(crate) struct ServiceType {
-    pub handler_type_name: TokenStream,
-    pub router_type_name: TokenStream,
+    pub state_type_name: TokenStream,
     pub generics: Option<ServiceTypeGenerics>,
     pub use_trait: Option<TokenStream>,
 }
@@ -67,36 +66,34 @@ impl ServiceType {
         match state_type {
             // Custom type
             Some(StateType::Custom(type_)) => {
-                let type_name = quote! { #type_ };
+                let state_type_name = quote! { #type_ };
                 let fq_trait_name = make_fq_trait_name(service_name);
-                let use_trait = Some(quote! { use super::#fq_trait_name; });
+                let use_trait = Some(quote! { use super::#fq_trait_name as _; });
 
                 Self {
-                    handler_type_name: type_name.clone(),
-                    router_type_name: type_name,
+                    state_type_name,
                     generics: None,
                     use_trait,
                 }
             }
             // Generics
             Some(StateType::Generic) => {
-                let type_name = ident("S").into_token_stream();
+                let state_type_name = ident("S").into_token_stream();
                 let handler_bound = make_fq_trait_name(service_name);
                 let generics = ServiceTypeGenerics {
                     handler_route_turbofish: quote! {
-                        ::<#type_name>
+                        ::<#state_type_name>
                     },
                     handler_generics: quote! {
-                        <#type_name: super::#handler_bound>
+                        <#state_type_name: super::#handler_bound>
                     },
                     router_generics: quote! {
-                        <#type_name: #handler_bound + Clone>
+                        <#state_type_name: #handler_bound + Clone>
                     },
                 };
 
                 Self {
-                    handler_type_name: type_name.clone(),
-                    router_type_name: type_name,
+                    state_type_name,
                     generics: Some(generics),
                     use_trait: None,
                 }
@@ -104,12 +101,10 @@ impl ServiceType {
             // Trait object by default
             None => {
                 let fq_trait_name = make_fq_trait_name(service_name);
-                let router_type_name = quote! { std::sync::Arc<dyn #fq_trait_name> };
-                let handler_type_name = quote! { Arc<dyn super::#fq_trait_name> };
+                let state_type_name = quote! { Arc<dyn super::#fq_trait_name> };
 
                 Self {
-                    router_type_name,
-                    handler_type_name,
+                    state_type_name,
                     generics: None,
                     use_trait: None,
                 }
