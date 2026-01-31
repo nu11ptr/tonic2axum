@@ -8,7 +8,7 @@ use quote::{format_ident, quote};
 
 use crate::{
     builder::GeneratorConfig,
-    codegen::helpers::{FunctionParts, ServiceType, ident},
+    codegen::helpers::{FunctionParts, ServiceType, ValueNames, ident},
     http::HttpOptions,
     message::{ExistingMessages, Message, NewMessages},
 };
@@ -21,6 +21,7 @@ pub(crate) struct Generator {
     existing_messages: ExistingMessages,
     modules: Vec<TokenStream>,
     routers: Vec<TokenStream>,
+    value_names: ValueNames,
 
     config: GeneratorConfig,
 }
@@ -42,6 +43,7 @@ impl Generator {
             existing_messages: ExistingMessages::default(),
             modules: Vec::new(),
             routers: Vec::new(),
+            value_names: ValueNames::new(config.value_suffix),
             config,
         })
     }
@@ -63,8 +65,11 @@ impl Generator {
         self.existing_messages.parse_source(buf)?;
 
         let state_type = self.config.state_types.get(service.name.as_str());
+        let has_trait_object_state_type = state_type.is_none();
         let service_type = ServiceType::new(&service.name, state_type);
         // This is due to the need to use turbofish for the handler function, but routes! macro doesn't support it.
+        // See: https://github.com/juhaku/utoipa/issues/1234
+        // In progress PR: https://github.com/juhaku/utoipa/pull/1329
         if service_type.generics.is_some() && self.config.generate_openapi {
             return Err(format!(
                 "A generic service state type is not supported when generating OpenAPI documentation: (Service: {})",
@@ -77,9 +82,8 @@ impl Generator {
 
         let mut functions = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
-
-        let has_trait_object_state_type = state_type.is_none();
         let mut has_client_streaming = false;
+
         for method in &service.methods {
             if let Some((function, route)) =
                 self.generate_func(&service.name, method, &service_type, &service_mod_name)?
@@ -93,6 +97,9 @@ impl Generator {
         }
 
         let use_json_lines = if has_client_streaming {
+            // This is due to the need to fill in the associated type in the trait object type. This effectively
+            // no longer becomes automatic as this option was intended to be. It is now equivalent to using a custom
+            // state type, so just do that (either with  the trait object type + associated type or the type itself).
             if has_trait_object_state_type {
                 return Err(format!(
                     "Client streaming methods are not supported when the state type is a trait object: (Service: {})",
@@ -122,12 +129,7 @@ impl Generator {
                 #(#functions)*
             }
         };
-        let router_func = Self::generate_router(
-            &service.name,
-            &service_type,
-            routes,
-            self.config.generate_openapi,
-        );
+        let router_func = self.generate_router(&service.name, &service_type, routes);
 
         self.modules.push(module);
         self.routers.push(router_func);
@@ -173,107 +175,116 @@ impl Generator {
 
         match self.existing_messages.get_message(input_type) {
             Some(message) => {
-                if let Some(method_details) = self.options.calculate_messages(
+                let method_details = self.options.parse(
                     service_name,
                     &method.proto_name,
                     message,
                     &self.existing_messages,
                     &mut self.new_messages,
                     &self.config,
-                )? {
-                    let value_suffix = self.config.value_suffix;
-                    let req = format_ident!("req{}", value_suffix);
-                    let headers = format_ident!("headers{}", value_suffix);
-                    let extensions = format_ident!("extensions{}", value_suffix);
-                    let state = format_ident!("state{}", value_suffix);
+                )?;
 
-                    // Make the function parts from the method details
-                    let func_parts = FunctionParts::new(
-                        &method.name,
-                        &method_details,
-                        input_type,
-                        method.client_streaming,
-                    )?;
+                match method_details {
+                    Some(method_details) => {
+                        let (req, headers, extensions, state) = self.value_names.names();
 
-                    let req = if func_parts.verbatim_request() && !method.client_streaming {
-                        quote! { #req.0 }
-                    } else if func_parts.empty_request() && input_type == "()" {
-                        quote! { () }
-                    } else if func_parts.empty_request() && input_type != "()" {
-                        let input_type = ident(input_type);
-                        quote! { super::#input_type {} }
-                    } else {
-                        quote! { #req }
-                    };
+                        // Make the function parts from the method details
+                        let func_parts = FunctionParts::new(
+                            &method.name,
+                            &method_details,
+                            input_type,
+                            method.client_streaming,
+                            req,
+                        )?;
 
-                    let FunctionParts {
-                        path_extractor,
-                        query_extractor,
-                        body_extractor,
-                        request_builder,
-                    } = func_parts;
+                        let req = if func_parts.verbatim_request() && !method.client_streaming {
+                            // Verbatim request so no need to build the request. It is a Json<T> (a tuple struct).
+                            quote! { #req.0 }
+                        } else if func_parts.empty_request() && input_type == "()" {
+                            // Special case for the empty request which tonic replaces with unit.
+                            quote! { () }
+                        } else if func_parts.empty_request() && input_type != "()" {
+                            // Empty message, but not the special google.protobuf.Empty message, so a struct with no fields
+                            // needs to be created as there won't be a parameter for it.
+                            let input_type = ident(input_type);
+                            quote! { super::#input_type {} }
+                        } else {
+                            // Normal case, just reference the request itself directly.
+                            quote! { #req }
+                        };
 
-                    let func_name = ident(&method.name);
-                    let func_comments = method.comments.leading.join("\n");
-                    let func_comments = if func_comments.is_empty() {
-                        None
-                    } else {
-                        Some(quote! { #[doc = #func_comments] })
-                    };
+                        let FunctionParts {
+                            path_extractor,
+                            query_extractor,
+                            body_extractor,
+                            request_builder,
+                        } = func_parts;
 
-                    let state_type = &service_type.handler_type_name;
-                    let handler_generics = service_type.handler_generics();
+                        let func_name = ident(&method.name);
+                        let func_comments = method.comments.leading.join("\n");
+                        let func_comments = if func_comments.is_empty() {
+                            None
+                        } else {
+                            Some(quote! { #[doc = #func_comments] })
+                        };
 
-                    let request_func_name = if method.client_streaming {
-                        quote! { make_stream_request }
-                    } else {
-                        quote! { make_request }
-                    };
-                    let response_func_name = if method.server_streaming {
-                        quote! { make_stream_response }
-                    } else {
-                        quote! { make_response }
-                    };
+                        let state_type = &service_type.handler_type_name;
+                        let handler_generics = service_type.handler_generics();
 
-                    let method = ident(&method_details.method);
-                    let path = method_details.path.as_ref();
-                    let path_attr = if self.config.generate_openapi {
-                        Some(quote! { #[utoipa::path(#method, path = #path, tag = #service_name)] })
-                    } else {
-                        None
-                    };
+                        let request_func_name = if method.client_streaming {
+                            quote! { make_stream_request }
+                        } else {
+                            quote! { make_request }
+                        };
+                        let response_func_name = if method.server_streaming {
+                            quote! { make_stream_response }
+                        } else {
+                            quote! { make_response }
+                        };
 
-                    let func = quote! {
-                        #func_comments
-                        #path_attr
-                        pub async fn #func_name #handler_generics(
-                            State(#state): State<#state_type>,
-                            #path_extractor
-                            #query_extractor
-                            #headers: http::HeaderMap,
-                            #extensions: http::Extensions,
-                            #body_extractor
-                        ) -> http::Response<Body> {
-                            #request_builder
-                            let #req = tonic2axum::#request_func_name(#headers, #extensions, #req);
-                            tonic2axum::#response_func_name(#state.#func_name(#req).await)
-                        }
-                    };
-
-                    // Build the route
-                    let turbofish = service_type.handler_route_turbofish();
-                    let route = if self.config.generate_openapi {
-                        quote! { .routes(routes!(#service_mod_name::#func_name)) }
-                    } else {
-                        let path = method_details.path.as_ref();
                         let method = ident(&method_details.method);
-                        quote! { .route(#path, #method(#service_mod_name::#func_name #turbofish)) }
-                    };
+                        let path = method_details.path.as_ref();
+                        let path_attr = if self.config.generate_openapi {
+                            Some(
+                                quote! { #[utoipa::path(#method, path = #path, tag = #service_name)] },
+                            )
+                        } else {
+                            None
+                        };
 
-                    Ok(Some((func, route)))
-                } else {
-                    println!("No method details found");
-                    Ok(None)
+                        let func = quote! {
+                            #func_comments
+                            #path_attr
+                            pub async fn #func_name #handler_generics(
+                                State(#state): State<#state_type>,
+                                #path_extractor
+                                #query_extractor
+                                #headers: http::HeaderMap,
+                                #extensions: http::Extensions,
+                                #body_extractor
+                            ) -> http::Response<Body> {
+                                #request_builder
+                                let #req = tonic2axum::#request_func_name(#headers, #extensions, #req);
+                                tonic2axum::#response_func_name(#state.#func_name(#req).await)
+                            }
+                        };
+
+                        // Build the route
+                        let turbofish = service_type.handler_route_turbofish();
+                        let route = if self.config.generate_openapi {
+                            quote! { .routes(routes!(#service_mod_name::#func_name)) }
+                        } else {
+                            let path = method_details.path.as_ref();
+                            let method = ident(&method_details.method);
+                            quote! { .route(#path, #method(#service_mod_name::#func_name #turbofish)) }
+                        };
+
+                        Ok(Some((func, route)))
+                    }
+                    None => {
+                        println!("No method details found");
+                        Ok(None)
+                    }
                 }
             }
             None => Err(format!(
@@ -285,17 +296,17 @@ impl Generator {
     }
 
     fn generate_router(
+        &self,
         service_name: &str,
         service_type: &ServiceType,
         routes: Vec<TokenStream>,
-        generate_openapi: bool,
     ) -> TokenStream {
         let func_name = format_ident!("make_{}_router", service_name.to_snake_case());
         let type_name = &service_type.router_type_name;
         let generics = service_type.router_generics();
         let comment = format!(" Axum router for the {service_name} service");
 
-        let (imports, router_type) = if generate_openapi {
+        let (imports, router_type) = if self.config.generate_openapi {
             (
                 quote! { use utoipa_axum::routes; },
                 quote! { utoipa_axum::router::OpenApiRouter },

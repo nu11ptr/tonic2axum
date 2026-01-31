@@ -179,9 +179,9 @@ impl NewMessages {
 
         let mut message = Message::new(name);
         message.add_fields(fields);
-        let ident = message.name.clone();
+        let message_name = message.name.clone();
         messages.push(message);
-        ident
+        message_name
     }
 
     pub fn get_or_create_body_message(

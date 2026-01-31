@@ -14,6 +14,30 @@ pub(crate) fn ident(name: &str) -> syn::Ident {
     syn::Ident::new(name, Span::call_site())
 }
 
+// *** ValueNames ***
+
+pub(crate) struct ValueNames {
+    req: syn::Ident,
+    headers: syn::Ident,
+    extensions: syn::Ident,
+    state: syn::Ident,
+}
+
+impl ValueNames {
+    pub fn new(value_suffix: &str) -> Self {
+        Self {
+            req: format_ident!("req{}", value_suffix),
+            headers: format_ident!("headers{}", value_suffix),
+            extensions: format_ident!("extensions{}", value_suffix),
+            state: format_ident!("state{}", value_suffix),
+        }
+    }
+
+    pub fn names(&self) -> (&syn::Ident, &syn::Ident, &syn::Ident, &syn::Ident) {
+        (&self.req, &self.headers, &self.extensions, &self.state)
+    }
+}
+
 // *** ServiceTypeGenerics and ServiceType ***
 
 pub(crate) struct ServiceTypeGenerics {
@@ -127,13 +151,14 @@ impl FunctionParts {
         method_details: &MethodDetails,
         input_type: &str,
         client_streaming: bool,
+        req_name: &syn::Ident,
     ) -> Result<Self, Box<dyn Error>> {
         let mut extracted_fields = Vec::new();
 
         let path_extractor =
             Self::make_path_extractor(&method_details.path_fields, &mut extracted_fields);
         let query_extractor =
-            Self::make_query_extractor(&method_details.query_str, &mut extracted_fields);
+            Self::make_query_extractor(&method_details.query_str, &mut extracted_fields, req_name);
         if client_streaming && !extracted_fields.is_empty() {
             return Err(format!(
                 "Client streaming methods are not supported with query or path parameters: (Method: {})",
@@ -145,8 +170,9 @@ impl FunctionParts {
             &method_details.body,
             &mut extracted_fields,
             client_streaming,
+            req_name,
         );
-        let request_builder = Self::make_request_builder(&extracted_fields, input_type);
+        let request_builder = Self::make_request_builder(&extracted_fields, input_type, req_name);
 
         Ok(Self {
             path_extractor,
@@ -181,6 +207,7 @@ impl FunctionParts {
     fn make_query_extractor(
         query_str: &Option<MessageDetails>,
         extracted_fields: &mut Vec<syn::Ident>,
+        req_name: &syn::Ident,
     ) -> Option<TokenStream> {
         match query_str {
             Some(message_details) => match &message_details {
@@ -201,7 +228,7 @@ impl FunctionParts {
                     type_name,
                     handling: MessageHandling::VerbatimRequest,
                 } => Some(quote! {
-                    req__: Query<super::#type_name>,
+                    #req_name: Query<super::#type_name>,
                 }),
             },
             None => None,
@@ -212,6 +239,7 @@ impl FunctionParts {
         body: &Option<MessageDetails>,
         extracted_fields: &mut Vec<syn::Ident>,
         client_streaming: bool,
+        req_name: &syn::Ident,
     ) -> Option<TokenStream> {
         match body {
             Some(message_details) => match &message_details {
@@ -237,13 +265,13 @@ impl FunctionParts {
                     type_name,
                     handling: MessageHandling::VerbatimRequest,
                 } if client_streaming => Some(quote! {
-                    req__: JsonLines<super::#type_name>,
+                    #req_name: JsonLines<super::#type_name>,
                 }),
                 MessageDetails {
                     type_name,
                     handling: MessageHandling::VerbatimRequest,
                 } => Some(quote! {
-                    req__: Json<super::#type_name>,
+                    #req_name: Json<super::#type_name>,
                 }),
             },
             None => None,
@@ -253,13 +281,14 @@ impl FunctionParts {
     fn make_request_builder(
         extracted_fields: &[syn::Ident],
         input_type: &str,
+        req_name: &syn::Ident,
     ) -> Option<TokenStream> {
         if extracted_fields.is_empty() {
             None
         } else {
             let type_name = ident(input_type);
             Some(quote! {
-                let req__ = super::#type_name { #(#extracted_fields),* };
+                let #req_name = super::#type_name { #(#extracted_fields),* };
             })
         }
     }

@@ -236,7 +236,7 @@ pub struct HttpOptions(
 );
 
 impl HttpOptions {
-    pub fn calculate_messages(
+    pub fn parse(
         &mut self,
         service_name: &str,
         method_name: &str,
