@@ -41,6 +41,20 @@ default-features = false
 [dependencies.tonic2axum]
 path = "../../tonic2axum"
 
+[dependencies.utoipa]
+version = "5"
+default-features = false
+features = ["macros"]
+
+[dependencies.utoipa-axum]
+version = "0.2"
+default-features = false
+
+[dependencies.utoipa-swagger-ui]
+version = "9"
+default-features = false
+features = ["axum"]
+
 # Build dependencies
 
 [build-dependencies.pbjson-build]

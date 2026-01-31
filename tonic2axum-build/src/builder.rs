@@ -14,16 +14,39 @@ const DEFAULT_FDS_FILE_NAME: &str = "fds.bin";
 /// The state type for a given service.
 pub enum StateType {
     Custom(Box<syn::Type>),
-    ArcTraitObj,
+    Generic,
+}
+
+pub(crate) struct GeneratorConfig {
+    pub state_types: HashMap<LocalStr, StateType>,
+    pub skip_bidi_streaming: bool,
+    pub generate_openapi: bool,
+    pub value_suffix: &'static str,
+    pub type_suffix: &'static str,
+    pub body_message_suffix: &'static str,
+    pub query_message_suffix: &'static str,
+}
+
+impl Default for GeneratorConfig {
+    fn default() -> Self {
+        Self {
+            state_types: HashMap::new(),
+            skip_bidi_streaming: true,
+            generate_openapi: true,
+            value_suffix: "__",
+            type_suffix: "__",
+            body_message_suffix: "Body",
+            query_message_suffix: "Query",
+        }
+    }
 }
 
 /// The builder for the tonic2axum code generator.
 pub struct Builder {
     fds_path: Option<PathBuf>,
-    state_types: HashMap<LocalStr, StateType>,
     prost_config: Option<ProstConfig>,
     tonic_builder: Option<TonicBuilder>,
-    skip_bidi_streaming: bool,
+    config: GeneratorConfig,
 }
 
 impl Builder {
@@ -31,16 +54,21 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             fds_path: None,
-            state_types: HashMap::new(),
             prost_config: None,
             tonic_builder: None,
-            skip_bidi_streaming: true,
+            config: GeneratorConfig::default(),
         }
     }
 
     /// Set whether to ignore bidirectional streaming methods (default: true).
     pub fn skip_bidi_streaming(mut self, ignore: bool) -> Self {
-        self.skip_bidi_streaming = ignore;
+        self.config.skip_bidi_streaming = ignore;
+        self
+    }
+
+    /// Set whether to generate an OpenAPI specification (default: true).
+    pub fn generate_openapi(mut self, enable: bool) -> Self {
+        self.config.generate_openapi = enable;
         self
     }
 
@@ -58,16 +86,18 @@ impl Builder {
     ) -> Result<Self, Box<dyn Error>> {
         let name: LocalStrRef = service_name.as_ref().into();
         let type_: syn::Type = syn::parse_str(state_type.as_ref())?;
-        self.state_types
+        self.config
+            .state_types
             .insert(name.into_owned(), StateType::Custom(Box::new(type_)));
         Ok(self)
     }
 
-    /// Set the state type to an [`std::sync::Arc<dyn Trait>`] for a given service.
-    pub fn arc_trait_obj_state_type(mut self, service_name: impl AsRef<str>) -> Self {
+    /// Set the state type to be any type that implements the service trait.
+    pub fn generic_state_type(mut self, service_name: impl AsRef<str>) -> Self {
         let name: LocalStrRef = service_name.as_ref().into();
-        self.state_types
-            .insert(name.into_owned(), StateType::ArcTraitObj);
+        self.config
+            .state_types
+            .insert(name.into_owned(), StateType::Generic);
         self
     }
 
@@ -123,23 +153,16 @@ impl Builder {
         fds: FileDescriptorSet,
         fds_bytes: Vec<u8>,
     ) -> Result<(), Box<dyn Error>> {
-        if self.prost_config.is_none() {
-            self.prost_config = Some(ProstConfig::new());
+        let mut prost_config = match self.prost_config.take() {
+            Some(config) => config,
+            None => ProstConfig::new(),
+        };
+
+        if self.config.generate_openapi {
+            prost_config.type_attribute(".", "#[derive(utoipa::ToSchema)]");
         }
 
-        if self.tonic_builder.is_none() {
-            self.tonic_builder = Some(tonic_prost_build::configure());
-        }
-
-        let prost_config = self.prost_config.as_mut().unwrap();
-        let tonic_builder = self.tonic_builder.unwrap();
-
-        let service_generator = Self::make_service_generator(
-            tonic_builder,
-            fds_bytes,
-            self.state_types,
-            self.skip_bidi_streaming,
-        )?;
+        let service_generator = self.make_service_generator(fds_bytes)?;
         prost_config.service_generator(service_generator);
         prost_config.compile_fds(fds)?;
         Ok(())
@@ -156,16 +179,17 @@ impl Builder {
     }
 
     fn make_service_generator(
-        tonic_builder: TonicBuilder,
+        self,
         fds_bytes: Vec<u8>,
-        state_types: HashMap<LocalStr, StateType>,
-        skip_bidi_streaming: bool,
     ) -> Result<Box<dyn ServiceGenerator>, Box<dyn Error>> {
+        let tonic_builder = match self.tonic_builder {
+            Some(builder) => builder,
+            None => tonic_prost_build::configure(),
+        };
         Ok(Box::new(Generator::new(
             tonic_builder.service_generator(),
             fds_bytes,
-            state_types,
-            skip_bidi_streaming,
+            self.config,
         )?))
     }
 }

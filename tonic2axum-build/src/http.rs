@@ -4,7 +4,10 @@ use flexstr::{LocalStr, str::LocalStrRef};
 use proc_macro2::Span;
 use prost_reflect::{DynamicMessage, Value};
 
-use crate::message::{ExistingMessages, Field, Message, NewMessages};
+use crate::{
+    builder::GeneratorConfig,
+    message::{ExistingMessages, Field, Message, NewMessages},
+};
 
 const HTTP_EXTENSION_TAG: u32 = 72295728;
 
@@ -103,6 +106,7 @@ impl HttpOption {
         message: &mut Message,
         existing_messages: &ExistingMessages,
         new_messages: &mut NewMessages,
+        config: &GeneratorConfig,
     ) -> Result<Option<MessageDetails>, Box<dyn Error>> {
         match &self.body {
             // Wildcard body
@@ -120,8 +124,11 @@ impl HttpOption {
                 } else {
                     // Build a new struct with the remaining fields
                     let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
-                    let type_name =
-                        new_messages.get_or_create_message(message.name.clone(), fields);
+                    let type_name = new_messages.get_or_create_body_message(
+                        message.name.clone(),
+                        fields,
+                        config,
+                    );
                     Ok(Some(MessageDetails::new(
                         &type_name,
                         MessageHandling::ExtractFields(extracted_fields),
@@ -153,8 +160,11 @@ impl HttpOption {
                     // No, but it is either not intact or has multiple fields, so we need to build a new single field struct
                     None => {
                         let extracted_fields = vec![field.ident.clone()];
-                        let type_name =
-                            new_messages.get_or_create_message(message.name.clone(), vec![field]);
+                        let type_name = new_messages.get_or_create_body_message(
+                            message.name.clone(),
+                            vec![field],
+                            config,
+                        );
                         Ok(Some(MessageDetails::new(
                             &type_name,
                             MessageHandling::ExtractFields(extracted_fields),
@@ -171,6 +181,7 @@ impl HttpOption {
         &self,
         message: &mut Message,
         new_messages: &mut NewMessages,
+        config: &GeneratorConfig,
     ) -> Option<MessageDetails> {
         if message.is_empty() {
             // No fields left, so no query struct is needed
@@ -185,7 +196,8 @@ impl HttpOption {
             // Build a new struct with the remaining fields
             let fields = message.remove_all_fields();
             let extracted_fields = fields.iter().map(|field| field.ident.clone()).collect();
-            let type_name = new_messages.get_or_create_message(message.name.clone(), fields);
+            let type_name =
+                new_messages.get_or_create_query_message(message.name.clone(), fields, config);
             Some(MessageDetails::new(
                 &type_name,
                 MessageHandling::ExtractFields(extracted_fields),
@@ -198,11 +210,12 @@ impl HttpOption {
         message: &Message,
         message_fields: &ExistingMessages,
         new_messages: &mut NewMessages,
+        config: &GeneratorConfig,
     ) -> Result<MethodDetails, Box<dyn Error>> {
         let mut message = message.clone();
         let path_fields = self.parse_pattern(&mut message)?;
-        let body = self.parse_body(&mut message, message_fields, new_messages)?;
-        let query_str = self.parse_query_str(&mut message, new_messages);
+        let body = self.parse_body(&mut message, message_fields, new_messages, config)?;
+        let query_str = self.parse_query_str(&mut message, new_messages, config);
 
         Ok(MethodDetails {
             method: self.method.clone(),
@@ -230,12 +243,14 @@ impl HttpOptions {
         message: &Message,
         existing_messages: &ExistingMessages,
         new_messages: &mut NewMessages,
+        config: &GeneratorConfig,
     ) -> Result<Option<MethodDetails>, Box<dyn Error>> {
         match self.get_http_options(service_name, method_name) {
             Some(option) => Ok(Some(option.parse(
                 message,
                 existing_messages,
                 new_messages,
+                config,
             )?)),
             None => Ok(None),
         }

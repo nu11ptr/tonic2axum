@@ -1,6 +1,5 @@
-use std::{collections::HashMap, error::Error};
+use std::error::Error;
 
-use flexstr::LocalStr;
 use heck::ToSnakeCase as _;
 use proc_macro2::{Span, TokenStream};
 use prost_build::ServiceGenerator;
@@ -9,6 +8,7 @@ use quote::{ToTokens as _, format_ident, quote};
 
 use crate::{
     StateType,
+    builder::GeneratorConfig,
     http::{HttpOptions, MessageDetails, MessageHandling, MethodDetails},
     message::{ExistingMessages, Field, Message, NewMessages},
 };
@@ -57,21 +57,8 @@ impl ServiceType {
                     use_trait,
                 }
             }
-            // Trait object
-            Some(StateType::ArcTraitObj) => {
-                let fq_trait_name = make_fq_trait_name(service_name);
-                let router_type_name = quote! { std::sync::Arc<dyn #fq_trait_name> };
-                let handler_type_name = quote! { Arc<dyn super::#fq_trait_name> };
-
-                Self {
-                    router_type_name,
-                    handler_type_name,
-                    generics: None,
-                    use_trait: None,
-                }
-            }
-            // Generic by default
-            None => {
+            // Generics
+            Some(StateType::Generic) => {
                 let type_name = ident("S").into_token_stream();
                 let handler_bound = make_fq_trait_name(service_name);
                 let generics = ServiceTypeGenerics {
@@ -90,6 +77,19 @@ impl ServiceType {
                     handler_type_name: type_name.clone(),
                     router_type_name: type_name,
                     generics: Some(generics),
+                    use_trait: None,
+                }
+            }
+            // Trait object by default
+            None => {
+                let fq_trait_name = make_fq_trait_name(service_name);
+                let router_type_name = quote! { std::sync::Arc<dyn #fq_trait_name> };
+                let handler_type_name = quote! { Arc<dyn super::#fq_trait_name> };
+
+                Self {
+                    router_type_name,
+                    handler_type_name,
+                    generics: None,
                     use_trait: None,
                 }
             }
@@ -280,21 +280,21 @@ impl FunctionParts {
 
 pub(crate) struct Generator {
     service_generator: Box<dyn ServiceGenerator>,
-    state_types: HashMap<LocalStr, StateType>,
+
     options: HttpOptions,
     new_messages: NewMessages,
     existing_messages: ExistingMessages,
     modules: Vec<TokenStream>,
     routers: Vec<TokenStream>,
-    skip_bidi_streaming: bool,
+
+    config: GeneratorConfig,
 }
 
 impl Generator {
     pub fn new(
         service_generator: Box<dyn ServiceGenerator>,
         bytes: Vec<u8>,
-        state_types: HashMap<LocalStr, StateType>,
-        skip_bidi_streaming: bool,
+        config: GeneratorConfig,
     ) -> Result<Self, Box<dyn Error>> {
         let dynamic_fds = Self::decode_fds(&bytes)?;
         let mut options = HttpOptions::default();
@@ -302,13 +302,12 @@ impl Generator {
 
         Ok(Self {
             service_generator,
-            state_types,
             options,
             new_messages: NewMessages::default(),
             existing_messages: ExistingMessages::default(),
             modules: Vec::new(),
             routers: Vec::new(),
-            skip_bidi_streaming,
+            config,
         })
     }
 
@@ -328,22 +327,49 @@ impl Generator {
         // Parse the existing messages from the buffer to start
         self.existing_messages.parse_source(buf)?;
 
-        let state_type = self.state_types.get(service.name.as_str());
+        let state_type = self.config.state_types.get(service.name.as_str());
         let service_type = ServiceType::new(&service.name, state_type);
+        // This is due to the need to use turbofish for the handler function, but routes! macro doesn't support it.
+        if service_type.generics.is_some() && self.config.generate_openapi {
+            return Err(format!(
+                "A generic service state type is not supported when generating OpenAPI documentation: (Service: {})",
+                service.name
+            )
+            .into());
+        }
 
         let service_mod_name = format_ident!("{}_handlers", service.name.to_snake_case());
 
         let mut functions = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
+
+        let has_trait_object_state_type = state_type.is_none();
+        let mut has_client_streaming = false;
         for method in &service.methods {
             if let Some((function, route)) =
                 self.generate_func(&service.name, method, &service_type, &service_mod_name)?
             {
+                if method.client_streaming {
+                    has_client_streaming = true;
+                }
                 functions.push(function);
                 routes.push(route);
             }
         }
 
+        let use_json_lines = if has_client_streaming {
+            if has_trait_object_state_type {
+                return Err(format!(
+                    "Client streaming methods are not supported when the state type is a trait object: (Service: {})",
+                    service.name
+                )
+                .into());
+            }
+
+            Some(quote! { use axum_extra::json_lines::JsonLines; })
+        } else {
+            None
+        };
         let use_trait = service_type.use_trait.as_ref();
 
         let module = quote! {
@@ -354,14 +380,19 @@ impl Generator {
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
-                use axum_extra::json_lines::JsonLines;
+                #use_json_lines
                 use std::sync::Arc;
                 #use_trait
 
                 #(#functions)*
             }
         };
-        let router_func = Self::generate_router(&service.name, &service_type, routes);
+        let router_func = Self::generate_router(
+            &service.name,
+            &service_type,
+            routes,
+            self.config.generate_openapi,
+        );
 
         self.modules.push(module);
         self.routers.push(router_func);
@@ -369,7 +400,7 @@ impl Generator {
         Ok(())
     }
 
-    fn generate_struct(message: &Message) -> TokenStream {
+    fn generate_struct(&self, message: &Message, body: bool) -> TokenStream {
         let fields = message.fields().iter().map(|field| {
             let field_name = &field.ident;
             let field_type = &field.type_;
@@ -378,8 +409,18 @@ impl Generator {
             }
         });
         let message_name = ident(message.name.as_ref());
+
+        let derive_attributes = if self.config.generate_openapi {
+            if body {
+                quote! { #[derive(serde::Deserialize, utoipa::ToSchema)] }
+            } else {
+                quote! { #[derive(serde::Deserialize, utoipa::IntoParams)] }
+            }
+        } else {
+            quote! { #[derive(serde::Deserialize)] }
+        };
         quote! {
-            #[derive(serde::Deserialize)]
+            #derive_attributes
             pub struct #message_name {
                 #(#fields),*
             }
@@ -393,7 +434,7 @@ impl Generator {
         service_type: &ServiceType,
         service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
-        if self.skip_bidi_streaming && method.client_streaming && method.server_streaming {
+        if self.config.skip_bidi_streaming && method.client_streaming && method.server_streaming {
             println!("Ignoring bidirectional streaming method: {}", method.name);
             return Ok(None);
         }
@@ -408,7 +449,14 @@ impl Generator {
                     message,
                     &self.existing_messages,
                     &mut self.new_messages,
+                    &self.config,
                 )? {
+                    let value_suffix = self.config.value_suffix;
+                    let req = format_ident!("req{}", value_suffix);
+                    let headers = format_ident!("headers{}", value_suffix);
+                    let extensions = format_ident!("extensions{}", value_suffix);
+                    let state = format_ident!("state{}", value_suffix);
+
                     // Make the function parts from the method details
                     let func_parts = FunctionParts::new(
                         &method.name,
@@ -418,14 +466,14 @@ impl Generator {
                     )?;
 
                     let req = if func_parts.verbatim_request() && !method.client_streaming {
-                        quote! { req__.0 }
+                        quote! { #req.0 }
                     } else if func_parts.empty_request() && input_type == "()" {
                         quote! { () }
                     } else if func_parts.empty_request() && input_type != "()" {
                         let input_type = ident(input_type);
                         quote! { super::#input_type {} }
                     } else {
-                        quote! { req__ }
+                        quote! { #req }
                     };
 
                     let FunctionParts {
@@ -457,28 +505,39 @@ impl Generator {
                         quote! { make_response }
                     };
 
+                    let method = ident(&method_details.method);
+                    let path = method_details.path.as_ref();
+                    let path_attr = if self.config.generate_openapi {
+                        Some(quote! { #[utoipa::path(#method, path = #path, tag = #service_name)] })
+                    } else {
+                        None
+                    };
+
                     let func = quote! {
                         #func_comments
+                        #path_attr
                         pub async fn #func_name #handler_generics(
-                            State(state__): State<#state_type>,
+                            State(#state): State<#state_type>,
                             #path_extractor
                             #query_extractor
-                            headers__: http::HeaderMap,
-                            extensions__: http::Extensions,
+                            #headers: http::HeaderMap,
+                            #extensions: http::Extensions,
                             #body_extractor
                         ) -> http::Response<Body> {
                             #request_builder
-                            let req__ = tonic2axum::#request_func_name(headers__, extensions__, #req);
-                            tonic2axum::#response_func_name(state__.#func_name(req__).await)
+                            let #req = tonic2axum::#request_func_name(#headers, #extensions, #req);
+                            tonic2axum::#response_func_name(#state.#func_name(#req).await)
                         }
                     };
 
                     // Build the route
-                    let path = method_details.path.as_ref();
-                    let method = ident(&method_details.method);
                     let turbofish = service_type.handler_route_turbofish();
-                    let route = quote! {
-                        .route(#path, #method(#service_mod_name::#func_name #turbofish))
+                    let route = if self.config.generate_openapi {
+                        quote! { .routes(routes!(#service_mod_name::#func_name)) }
+                    } else {
+                        let path = method_details.path.as_ref();
+                        let method = ident(&method_details.method);
+                        quote! { .route(#path, #method(#service_mod_name::#func_name #turbofish)) }
                     };
 
                     Ok(Some((func, route)))
@@ -499,19 +558,34 @@ impl Generator {
         service_name: &str,
         service_type: &ServiceType,
         routes: Vec<TokenStream>,
+        generate_openapi: bool,
     ) -> TokenStream {
         let func_name = format_ident!("make_{}_router", service_name.to_snake_case());
         let type_name = &service_type.router_type_name;
         let generics = service_type.router_generics();
         let comment = format!(" Axum router for the {service_name} service");
 
+        let (imports, router_type) = if generate_openapi {
+            (
+                quote! { use utoipa_axum::routes; },
+                quote! { utoipa_axum::router::OpenApiRouter },
+            )
+        } else {
+            (
+                quote! {
+                    #[allow(unused_imports)]
+                    use axum::routing::{get, post, put, delete, patch};
+                },
+                quote! { axum::Router },
+            )
+        };
+
         quote! {
             #[doc = #comment]
-            pub fn #func_name #generics(state: #type_name) -> axum::Router {
-                #[allow(unused_imports)]
-                use axum::routing::{get, post, put, delete, patch};
+            pub fn #func_name #generics(state: #type_name) -> #router_type {
+                #imports
 
-                axum::Router::new()
+                #router_type::new()
                     #(#routes)*
                     .with_state(state)
             }
@@ -520,12 +594,20 @@ impl Generator {
 
     fn write_code_to_buffer(&mut self, buf: &mut String) {
         // These are done last because they are gathered from each service
-        let structs = self.new_messages.messages().map(Self::generate_struct);
+        let body_structs = self
+            .new_messages
+            .body_messages()
+            .map(|message| self.generate_struct(message, true));
+        let query_structs = self
+            .new_messages
+            .query_messages()
+            .map(|message| self.generate_struct(message, false));
         let modules = &self.modules;
         let routers = &self.routers;
 
         let file = quote! {
-            #(#structs)*
+            #(#body_structs)*
+            #(#query_structs)*
 
             #(#modules)*
 

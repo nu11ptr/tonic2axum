@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
 use axum::Router;
 use tonic::{Request, Response, Status, service::Routes};
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::greeter::{
     HelloReply, HelloRequest,
@@ -34,8 +39,15 @@ impl greeter_server::Greeter for Greeter {
 
 #[tokio::main]
 async fn main() {
+    #[derive(OpenApi)]
+    #[openapi(tags((name = "Greeter", description = "Greeter API")))]
+    struct ApiDoc;
+
     // Make a router for the generated REST API (using our greeter above)
-    let rest_router = make_greeter_router(Greeter);
+    let rest_router = make_greeter_router(Arc::new(Greeter));
+    let (rest_router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
+        .nest("/v1", rest_router)
+        .split_for_parts();
 
     // Make a router for the gRPC API (using the same greeter, but nested inside a GreeterServer)
     let grpc_router = Routes::new(GreeterServer::new(Greeter))
@@ -44,7 +56,10 @@ async fn main() {
         .reset_fallback();
 
     // Combine the routers into a single router
-    let router = Router::new().nest("/v1", rest_router).merge(grpc_router);
+    let router = Router::new()
+        .merge(rest_router)
+        .merge(grpc_router)
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api.clone()));
 
     // Bind to a port and start the server using our combined router
     let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")

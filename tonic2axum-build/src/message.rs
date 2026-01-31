@@ -3,6 +3,8 @@ use std::{collections::HashMap, error::Error, mem};
 use flexstr::LocalStr;
 use quote::ToTokens;
 
+use crate::builder::GeneratorConfig;
+
 // *** Message ***
 
 #[derive(Clone, Debug)]
@@ -142,19 +144,22 @@ impl ExistingMessages {
 // *** NewMessages ***
 
 #[derive(Debug, Default)]
-pub(crate) struct NewMessages(
+pub(crate) struct NewMessages {
     // Input message name -> Messages
-    HashMap<LocalStr, Vec<Message>>,
-);
+    body_messages: HashMap<LocalStr, Vec<Message>>,
+    query_messages: HashMap<LocalStr, Vec<Message>>,
+}
 
 impl NewMessages {
-    pub fn get_or_create_message(
-        &mut self,
+    fn get_or_create_message(
+        messages: &mut HashMap<LocalStr, Vec<Message>>,
         input_message_name: LocalStr,
         fields: Vec<Field>,
+        suffix: &str,
+        type_suffix: &str,
     ) -> LocalStr {
         // Find messages for this input message name
-        let messages = self.0.entry(input_message_name.clone()).or_default();
+        let messages = messages.entry(input_message_name.clone()).or_default();
 
         // Try to find a matching message first before creating a new one. Return the existing message if found.
         for message in messages.iter() {
@@ -165,7 +170,11 @@ impl NewMessages {
 
         // Create a new message if no matching message was found (existing message is unnumbered, so second number is 2)
         let suffix_num = messages.len() + 2;
-        let name: LocalStr = format!("{}{}__", &*input_message_name, suffix_num).into();
+        let name: LocalStr = format!(
+            "{}{}{}{}",
+            &*input_message_name, suffix, suffix_num, type_suffix
+        )
+        .into();
         let name = name.optimize();
 
         let mut message = Message::new(name);
@@ -175,7 +184,41 @@ impl NewMessages {
         ident
     }
 
-    pub fn messages(&self) -> impl Iterator<Item = &Message> {
-        self.0.values().flatten()
+    pub fn get_or_create_body_message(
+        &mut self,
+        input_message_name: LocalStr,
+        fields: Vec<Field>,
+        config: &GeneratorConfig,
+    ) -> LocalStr {
+        Self::get_or_create_message(
+            &mut self.body_messages,
+            input_message_name,
+            fields,
+            config.body_message_suffix,
+            config.type_suffix,
+        )
+    }
+
+    pub fn get_or_create_query_message(
+        &mut self,
+        input_message_name: LocalStr,
+        fields: Vec<Field>,
+        config: &GeneratorConfig,
+    ) -> LocalStr {
+        Self::get_or_create_message(
+            &mut self.query_messages,
+            input_message_name,
+            fields,
+            config.query_message_suffix,
+            config.type_suffix,
+        )
+    }
+
+    pub fn body_messages(&self) -> impl Iterator<Item = &Message> {
+        self.body_messages.values().flatten()
+    }
+
+    pub fn query_messages(&self) -> impl Iterator<Item = &Message> {
+        self.query_messages.values().flatten()
     }
 }
