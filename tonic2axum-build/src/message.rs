@@ -1,7 +1,8 @@
 use std::{collections::HashMap, error::Error, fmt, mem};
 
 use flexstr::{LocalStr, str::LocalStrRef};
-use quote::ToTokens;
+use proc_macro2::TokenStream;
+use quote::{ToTokens, quote};
 
 use crate::builder::GeneratorConfig;
 
@@ -31,10 +32,11 @@ impl DocComments {
                         syn::Meta::NameValue(meta) => {
                             // The value is an Expr, which for doc comments is always a string literal
                             match &meta.value {
+                                // Remove the leading space from the doc comment
                                 syn::Expr::Lit(syn::ExprLit {
                                     lit: syn::Lit::Str(lit_str),
                                     ..
-                                }) => Some(LocalStr::from(lit_str.value()).optimize()),
+                                }) => Some(LocalStrRef::from(&lit_str.value()[1..]).into_owned()),
                                 _ => None,
                             }
                         }
@@ -47,8 +49,12 @@ impl DocComments {
             .collect()
     }
 
-    pub fn comments(&self) -> &[LocalStr] {
-        &self.0
+    pub fn to_doc_comments(&self) -> impl Iterator<Item = TokenStream> {
+        self.0.iter().map(|comment| {
+            // Re-add the leading space to the doc comment
+            let comment = format!(" {}", comment);
+            quote! { #[doc = #comment] }
+        })
     }
 
     pub fn is_empty(&self) -> bool {

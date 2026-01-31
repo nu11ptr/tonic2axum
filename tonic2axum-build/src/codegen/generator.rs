@@ -9,7 +9,7 @@ use quote::{format_ident, quote};
 use crate::{
     builder::GeneratorConfig,
     codegen::helpers::{FunctionParts, ServiceType, ValueNames, ident},
-    http::HttpOptions,
+    http::{HttpOptions, MessageDetails, MethodDetails},
     message::{ExistingMessages, Message, NewMessages},
 };
 
@@ -157,10 +157,7 @@ impl Generator {
         let fields = message.fields().iter().map(|field| {
             let field_name = &field.ident;
             let field_type = &field.type_;
-            let field_doc_comments = field.doc_comments.comments().iter().map(|comment| {
-                let comment = comment.as_ref();
-                quote! { #[doc = #comment] }
-            });
+            let field_doc_comments = field.doc_comments.to_doc_comments();
             quote! {
                 #(#field_doc_comments)*
                 pub #field_name: #field_type
@@ -174,10 +171,7 @@ impl Generator {
             } else {
                 &message.doc_comments
             };
-        let msg_doc_comments = msg_doc_comments.comments().iter().map(|comment| {
-            let comment = comment.as_ref();
-            quote! { #[doc = #comment] }
-        });
+        let msg_doc_comments = msg_doc_comments.to_doc_comments();
 
         let message_name = ident(message.name.as_ref());
 
@@ -198,6 +192,31 @@ impl Generator {
                 #(#fields),*
             }
         }
+    }
+
+    fn generate_openapi_path_attr(
+        &self,
+        service_name: &str,
+        method_details: &MethodDetails,
+    ) -> TokenStream {
+        let method = ident(&method_details.method);
+        let path = method_details.path.as_ref();
+
+        // ("field_name" = type, Path, description = "doc comment")
+        let path_params = method_details.path_fields.iter().map(|field| {
+            let field_name = field.name.as_ref();
+            let field_type = &field.type_;
+            let field_comments = field.doc_comments.to_string();
+            quote! { (#field_name = #field_type, Path, description = #field_comments) }
+        });
+
+        // StructName
+        let query_params = method_details
+            .query_str
+            .iter()
+            .map(|&MessageDetails { ref type_name, .. }| quote! { super::#type_name });
+
+        quote! { #[utoipa::path(#method, path = #path, tag = #service_name, params(#(#path_params ,)* #(#query_params),*))] }
     }
 
     fn generate_func(
@@ -276,13 +295,8 @@ impl Generator {
                         } else {
                             quote! { make_response }
                         };
-
-                        let method = ident(&method_details.method);
-                        let path = method_details.path.as_ref();
                         let path_attr = if self.config.generate_openapi {
-                            Some(
-                                quote! { #[utoipa::path(#method, path = #path, tag = #service_name)] },
-                            )
+                            Some(self.generate_openapi_path_attr(service_name, &method_details))
                         } else {
                             None
                         };

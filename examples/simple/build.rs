@@ -11,11 +11,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .type_suffix("")
         .struct_doc_comments(
             "HelloRequestBody",
-            " The request body containing the user's last name.",
+            "The request body containing the user's last name.",
         )?
         .struct_doc_comments(
             "HelloRequestQuery",
-            " The request query parameter containing the user's salutation.",
+            "The request query parameter containing the user's salutation.",
         )?
         .generate_openapi(true);
 
