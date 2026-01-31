@@ -8,6 +8,7 @@ use proc_macro2::Span;
 use prost_build::ServiceGenerator;
 use prost_reflect::prost_types::FileDescriptorSet;
 
+use crate::message::DocComments;
 use crate::{ProstConfig, TonicBuilder, codegen::Generator};
 
 const DEFAULT_FDS_FILE_NAME: &str = "fds.bin";
@@ -27,6 +28,7 @@ pub(crate) struct GeneratorConfig {
     pub query_message_suffix: &'static str,
     pub router_func_name: syn::Ident,
     pub service_mod_name_suffix: &'static str,
+    pub struct_doc_comments: HashMap<LocalStr, DocComments>,
 }
 
 impl Default for GeneratorConfig {
@@ -40,6 +42,7 @@ impl Default for GeneratorConfig {
             query_message_suffix: "Query",
             router_func_name: syn::Ident::new("make_router", Span::call_site()),
             service_mod_name_suffix: "_axum",
+            struct_doc_comments: HashMap::new(),
         }
     }
 }
@@ -157,6 +160,25 @@ impl Builder {
     pub fn service_mod_name_suffix(mut self, suffix: &'static str) -> Self {
         self.config.service_mod_name_suffix = suffix;
         self
+    }
+
+    /// Set the struct doc comments for a given struct name. By default, it uses the comments from the proto file
+    /// but after partial field extraction, this may or may not still be a sensible comment.
+    pub fn struct_doc_comments(
+        mut self,
+        struct_name: impl AsRef<str>,
+        doc_comments: impl AsRef<str>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let struct_name: LocalStrRef = struct_name.as_ref().into();
+        let doc_comments: DocComments = doc_comments.as_ref().into();
+        if struct_name.is_empty() || doc_comments.is_empty() {
+            return Err("Both struct name and doc comments must be provided".into());
+        }
+
+        self.config
+            .struct_doc_comments
+            .insert(struct_name.into_owned(), doc_comments);
+        Ok(self)
     }
 
     /// Set the path to the file descriptor set.

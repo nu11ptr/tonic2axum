@@ -9,6 +9,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         .tonic_builder(tonic_builder)
         .value_suffix("")
         .type_suffix("")
+        .struct_doc_comments(
+            "HelloRequestBody",
+            " The request body containing the user's last name.",
+        )?
+        .struct_doc_comments(
+            "HelloRequestQuery",
+            " The request query parameter containing the user's salutation.",
+        )?
         .generate_openapi(true);
 
     // 3. tonic2axum_build: Compile the proto files and return the file descriptor set and its raw bytes.

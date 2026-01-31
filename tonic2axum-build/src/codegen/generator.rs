@@ -166,12 +166,21 @@ impl Generator {
                 pub #field_name: #field_type
             }
         });
-        let message_name = ident(message.name.as_ref());
 
-        let msg_doc_comments = message.doc_comments.comments().iter().map(|comment| {
+        // Use either custom doc comments or the ones from the proto file
+        let msg_doc_comments =
+            if let Some(doc_comments) = self.config.struct_doc_comments.get(&message.name) {
+                doc_comments
+            } else {
+                &message.doc_comments
+            };
+        let msg_doc_comments = msg_doc_comments.comments().iter().map(|comment| {
             let comment = comment.as_ref();
             quote! { #[doc = #comment] }
         });
+
+        let message_name = ident(message.name.as_ref());
+
         let derive_attributes = if self.config.generate_openapi {
             if body {
                 quote! { #[derive(serde::Deserialize, utoipa::ToSchema)] }
@@ -181,6 +190,7 @@ impl Generator {
         } else {
             quote! { #[derive(serde::Deserialize)] }
         };
+
         quote! {
             #(#msg_doc_comments)*
             #derive_attributes

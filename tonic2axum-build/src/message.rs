@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt, mem};
 
-use flexstr::LocalStr;
+use flexstr::{LocalStr, str::LocalStrRef};
 use quote::ToTokens;
 
 use crate::builder::GeneratorConfig;
@@ -50,6 +50,10 @@ impl DocComments {
     pub fn comments(&self) -> &[LocalStr] {
         &self.0
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 impl fmt::Display for DocComments {
@@ -63,6 +67,23 @@ impl fmt::Display for DocComments {
             first = false;
         }
         Ok(())
+    }
+}
+
+impl From<&str> for DocComments {
+    fn from(value: &str) -> Self {
+        if value.is_empty() {
+            Self(Vec::new())
+        } else if value.contains('\n') {
+            Self(
+                value
+                    .split('\n')
+                    .map(|line| LocalStrRef::from(line).into_owned())
+                    .collect(),
+            )
+        } else {
+            Self(vec![LocalStrRef::from(value).into_owned()])
+        }
     }
 }
 
