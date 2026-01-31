@@ -198,25 +198,51 @@ impl Generator {
         &self,
         service_name: &str,
         method_details: &MethodDetails,
+        output_type: &str,
     ) -> TokenStream {
         let method = ident(&method_details.method);
         let path = method_details.path.as_ref();
 
-        // ("field_name" = type, Path, description = "doc comment")
-        let path_params = method_details.path_fields.iter().map(|field| {
-            let field_name = field.name.as_ref();
-            let field_type = &field.type_;
-            let field_comments = field.doc_comments.to_string();
-            quote! { (#field_name = #field_type, Path, description = #field_comments) }
-        });
+        let params = if method_details.path_fields.is_empty() || method_details.query_str.is_none()
+        {
+            None
+        } else {
+            // ("field_name" = <type>, Path, description = "doc comment")
+            let path_params = method_details.path_fields.iter().map(|field| {
+                let field_name = field.name.as_ref();
+                let field_type = &field.type_;
+                let field_comments = field.doc_comments.to_string();
+                quote! { (#field_name = #field_type, Path, description = #field_comments) }
+            });
 
-        // StructName
-        let query_params = method_details
-            .query_str
-            .iter()
-            .map(|&MessageDetails { ref type_name, .. }| quote! { super::#type_name });
+            // StructName
+            let query_params = method_details
+                .query_str
+                .iter()
+                .map(|&MessageDetails { ref type_name, .. }| quote! { super::#type_name });
 
-        quote! { #[utoipa::path(#method, path = #path, tag = #service_name, params(#(#path_params ,)* #(#query_params),*))] }
+            Some(quote! { , params(#(#path_params ,)* #(#query_params),*) })
+        };
+
+        // <type>
+        let request_body = if let Some(body) = &method_details.body {
+            let input_type = &body.type_name;
+            Some(quote! { , request_body = super::#input_type })
+        } else {
+            None
+        };
+
+        // (status = <code>, description = "description", body = <type>)
+        let responses = if output_type == "()" {
+            None
+        } else {
+            let output_type = ident(output_type);
+            Some(
+                quote! { , responses((status = 200, description = "Success", body = super::#output_type)) },
+            )
+        };
+
+        quote! { #[utoipa::path(#method, path = #path, tag = #service_name #params #request_body #responses)] }
     }
 
     fn generate_func(
@@ -296,7 +322,11 @@ impl Generator {
                             quote! { make_response }
                         };
                         let path_attr = if self.config.generate_openapi {
-                            Some(self.generate_openapi_path_attr(service_name, &method_details))
+                            Some(self.generate_openapi_path_attr(
+                                service_name,
+                                &method_details,
+                                &method.output_type,
+                            ))
                         } else {
                             None
                         };
