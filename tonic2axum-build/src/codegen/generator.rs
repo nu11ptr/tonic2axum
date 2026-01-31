@@ -198,9 +198,9 @@ impl Generator {
         &self,
         service_name: &str,
         method_details: &MethodDetails,
-        output_type: &str,
+        method: &prost_build::Method,
     ) -> TokenStream {
-        let method = ident(&method_details.method);
+        let method_name = ident(&method_details.method);
         let path = method_details.path.as_ref();
 
         let params = if method_details.path_fields.is_empty() || method_details.query_str.is_none()
@@ -224,25 +224,43 @@ impl Generator {
             Some(quote! { , params(#(#path_params ,)* #(#query_params),*) })
         };
 
-        // <type>
         let request_body = if let Some(body) = &method_details.body {
             let input_type = &body.type_name;
-            Some(quote! { , request_body = super::#input_type })
+
+            if method.client_streaming {
+                let content_type = self.config.streaming_content_type;
+
+                // content = <type>, content_type = <content_type>
+                Some(
+                    quote! { , request_body(content = super::#input_type, content_type = #content_type) },
+                )
+            } else {
+                // <type>
+                Some(quote! { , request_body = super::#input_type })
+            }
         } else {
             None
         };
 
-        // (status = <code>, description = "description", body = <type>)
-        let responses = if output_type == "()" {
+        let responses = if method.output_type == "()" {
             None
         } else {
-            let output_type = ident(output_type);
+            let output_type = ident(&method.output_type);
+
+            let content_type = if method.server_streaming {
+                let content_type = self.config.streaming_content_type;
+                Some(quote! { , content_type = #content_type })
+            } else {
+                None
+            };
+
+            // (status = <code>, description = "description", body = <type>, (content_type = <content_type>))
             Some(
-                quote! { , responses((status = 200, description = "Success", body = super::#output_type)) },
+                quote! { , responses((status = 200, description = "Success", body = super::#output_type #content_type)) },
             )
         };
 
-        quote! { #[utoipa::path(#method, path = #path, tag = #service_name #params #request_body #responses)] }
+        quote! { #[utoipa::path(#method_name, path = #path, tag = #service_name #params #request_body #responses)] }
     }
 
     fn generate_func(
@@ -325,7 +343,7 @@ impl Generator {
                             Some(self.generate_openapi_path_attr(
                                 service_name,
                                 &method_details,
-                                &method.output_type,
+                                &method,
                             ))
                         } else {
                             None

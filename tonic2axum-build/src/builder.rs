@@ -22,6 +22,7 @@ pub enum StateType {
 pub(crate) struct GeneratorConfig {
     pub state_types: HashMap<LocalStr, StateType>,
     pub generate_openapi: bool,
+    pub streaming_content_type: &'static str,
     pub value_suffix: &'static str,
     pub type_suffix: &'static str,
     pub body_message_suffix: &'static str,
@@ -36,6 +37,7 @@ impl Default for GeneratorConfig {
         Self {
             state_types: HashMap::new(),
             generate_openapi: false,
+            streaming_content_type: "application/x-ndjson",
             value_suffix: "__",
             type_suffix: "__",
             body_message_suffix: "Body",
@@ -110,6 +112,18 @@ impl Builder {
     pub fn generate_openapi(mut self, enable: bool) -> Self {
         self.config.generate_openapi = enable;
         self
+    }
+
+    /// Set the streaming content type for the generated streaming responses (default: "application/x-ndjson").
+    pub fn streaming_content_type(
+        mut self,
+        content_type: &'static str,
+    ) -> Result<Self, Box<dyn Error>> {
+        if content_type.is_empty() {
+            return Err("Streaming content type cannot be empty".into());
+        }
+        self.config.streaming_content_type = content_type;
+        Ok(self)
     }
 
     /// Set the value suffix for the generated value bindings (default: "__"). It can be empty to avoid the suffix,
