@@ -19,7 +19,6 @@ pub enum StateType {
 
 pub(crate) struct GeneratorConfig {
     pub state_types: HashMap<LocalStr, StateType>,
-    pub skip_bidi_streaming: bool,
     pub generate_openapi: bool,
     pub value_suffix: &'static str,
     pub type_suffix: &'static str,
@@ -31,7 +30,6 @@ impl Default for GeneratorConfig {
     fn default() -> Self {
         Self {
             state_types: HashMap::new(),
-            skip_bidi_streaming: true,
             generate_openapi: false,
             value_suffix: "__",
             type_suffix: "__",
@@ -58,12 +56,6 @@ impl Builder {
             tonic_builder: None,
             config: GeneratorConfig::default(),
         }
-    }
-
-    /// Set whether to ignore bidirectional streaming methods (default: true).
-    pub fn skip_bidi_streaming(mut self, ignore: bool) -> Self {
-        self.config.skip_bidi_streaming = ignore;
-        self
     }
 
     /// Set whether to generate an OpenAPI specification (default: false).

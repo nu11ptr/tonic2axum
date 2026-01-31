@@ -7,7 +7,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     // 2. tonic2axum_build: Configure the Builder
     let mut builder = tonic2axum_build::Builder::new()
         .tonic_builder(tonic_builder)
-        .skip_bidi_streaming(false)
         .custom_state_type("Greeter", "crate::Greeter")?
         .generate_openapi(true);
 

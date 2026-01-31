@@ -434,11 +434,6 @@ impl Generator {
         service_type: &ServiceType,
         service_mod_name: &syn::Ident,
     ) -> Result<Option<(TokenStream, TokenStream)>, Box<dyn Error>> {
-        if self.config.skip_bidi_streaming && method.client_streaming && method.server_streaming {
-            println!("Ignoring bidirectional streaming method: {}", method.name);
-            return Ok(None);
-        }
-
         let input_type = &method.input_type;
 
         match self.existing_messages.get_message(input_type) {

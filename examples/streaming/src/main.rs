@@ -1,6 +1,8 @@
+use std::pin::Pin;
+
 use axum::Router;
-use futures_util::stream::iter;
-use futures_util::{StreamExt as _, stream::Iter};
+use futures_util::Stream;
+use futures_util::StreamExt as _;
 use tonic::{Request, Response, Status, Streaming, service::Routes};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -22,11 +24,7 @@ struct Greeter;
 
 #[tonic::async_trait]
 impl greeter_server::Greeter for Greeter {
-    // WARNING: Notice we read all requests BEFORE potentially sending replies back. This is intentional. A full duplex
-    // method will work for gRPC, but might not work for REST. Half duplex is okay for both. It is best to avoid bidirectional
-    // streaming when possible for this reason. Using client *OR* server streaming should be fine.
-
-    type SayHelloStream = Iter<std::vec::IntoIter<Result<HelloReply, Status>>>;
+    type SayHelloStream = Pin<Box<dyn Stream<Item = Result<HelloReply, Status>> + Send + 'static>>;
 
     async fn say_hello(
         &self,
@@ -34,26 +32,23 @@ impl greeter_server::Greeter for Greeter {
     ) -> Result<Response<Self::SayHelloStream>, Status> {
         let stream = request.into_inner();
 
-        // Collect and transform all the requests into replies first
-        let stream = stream
-            .map(|request| match request {
-                Ok(request) => {
-                    let HelloRequest {
-                        first_name,
-                        last_name,
-                    } = request;
+        // Map the requests into replies lazily to achieve full duplex. For REST, this will likely be
+        // used half duplex (depending on the client implementation).
+        let stream = stream.map(|request| match request {
+            Ok(request) => {
+                let HelloRequest {
+                    first_name,
+                    last_name,
+                } = request;
 
-                    Ok(HelloReply {
-                        message: format!("Hello, {} {}!", first_name, last_name),
-                    })
-                }
-                Err(status) => Err(status),
-            })
-            .collect::<Vec<_>>()
-            .await;
+                Ok(HelloReply {
+                    message: format!("Hello, {} {}!", first_name, last_name),
+                })
+            }
+            Err(status) => Err(status),
+        });
 
-        // After all the requests are collected and transformed into replies, send the replies back as a new stream
-        Ok(Response::new(iter(stream)))
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
