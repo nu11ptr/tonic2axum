@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use flexstr::LocalStr;
 use flexstr::str::LocalStrRef;
+use proc_macro2::Span;
 use prost_build::ServiceGenerator;
 use prost_reflect::prost_types::FileDescriptorSet;
 
@@ -24,6 +25,7 @@ pub(crate) struct GeneratorConfig {
     pub type_suffix: &'static str,
     pub body_message_suffix: &'static str,
     pub query_message_suffix: &'static str,
+    pub router_func_name: syn::Ident,
 }
 
 impl Default for GeneratorConfig {
@@ -35,6 +37,7 @@ impl Default for GeneratorConfig {
             type_suffix: "__",
             body_message_suffix: "Body",
             query_message_suffix: "Query",
+            router_func_name: syn::Ident::new("make_router", Span::call_site()),
         }
     }
 }
@@ -58,38 +61,97 @@ impl Builder {
         }
     }
 
+    /// Set a custom state type for a given service. While this is often a concrete fully qualified type name,
+    /// it can also be a trait object type name. This is required, for example, when using client streaming methods,
+    /// as the associated type in the generated service trait is not known.
+    pub fn custom_state_type(
+        mut self,
+        service_name: impl AsRef<str>,
+        state_type: impl AsRef<str>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let service_name: LocalStrRef = service_name.as_ref().into();
+        let state_type = state_type.as_ref();
+        if service_name.is_empty() || state_type.is_empty() {
+            return Err("Both service name and state type must be provided".into());
+        }
+
+        let type_: syn::Type = syn::parse_str(state_type.as_ref())?;
+        self.config.state_types.insert(
+            service_name.into_owned(),
+            StateType::Custom(Box::new(type_)),
+        );
+        Ok(self)
+    }
+
+    /// Set the state type to be any type that implements the service trait.
+    ///
+    /// > NOTE: This is not compatible with generating OpenAPI documentation.
+    pub fn generic_state_type(
+        mut self,
+        service_name: impl AsRef<str>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let name: LocalStrRef = service_name.as_ref().into();
+        if name.is_empty() {
+            return Err("Service name cannot be empty".into());
+        }
+
+        self.config
+            .state_types
+            .insert(name.into_owned(), StateType::Generic);
+        Ok(self)
+    }
+
     /// Set whether to generate an OpenAPI specification (default: false).
     pub fn generate_openapi(mut self, enable: bool) -> Self {
         self.config.generate_openapi = enable;
         self
     }
 
-    /// Set the path to the file descriptor set.
-    pub fn file_descriptor_set_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.fds_path = Some(path.into());
+    /// Set the value suffix for the generated value bindings (default: "__"). It can be empty to avoid the suffix,
+    /// if you are sure the names will not conflict with any field names used in your proto messages
+    /// (ie. req, headers, extensions, state).
+    pub fn value_suffix(mut self, suffix: &'static str) -> Self {
+        self.config.value_suffix = suffix;
         self
     }
 
-    /// Set a custom state type for a given service.
-    pub fn custom_state_type(
-        mut self,
-        service_name: impl AsRef<str>,
-        state_type: impl AsRef<str>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let name: LocalStrRef = service_name.as_ref().into();
-        let type_: syn::Type = syn::parse_str(state_type.as_ref())?;
-        self.config
-            .state_types
-            .insert(name.into_owned(), StateType::Custom(Box::new(type_)));
+    /// Set the type suffix for the generated struct types (default: "__"). It can be empty to avoid the suffix
+    /// if you are sure the names will not conflict with any message names in your proto package.
+    pub fn type_suffix(mut self, suffix: &'static str) -> Self {
+        self.config.type_suffix = suffix;
+        self
+    }
+
+    /// Set the body message suffix for the generated struct types (default: "Body"). It cannot be empty
+    /// as that will conlfict with Prost generated struct types names.
+    pub fn body_message_suffix(mut self, suffix: &'static str) -> Result<Self, Box<dyn Error>> {
+        if suffix.is_empty() {
+            return Err("Body message suffix cannot be empty".into());
+        }
+        self.config.body_message_suffix = suffix;
         Ok(self)
     }
 
-    /// Set the state type to be any type that implements the service trait.
-    pub fn generic_state_type(mut self, service_name: impl AsRef<str>) -> Self {
-        let name: LocalStrRef = service_name.as_ref().into();
-        self.config
-            .state_types
-            .insert(name.into_owned(), StateType::Generic);
+    /// Set the query message suffix for the generated struct types (default: "Query"). It cannot be empty
+    /// as that will conlfict with Prost generated struct types names.
+    pub fn query_message_suffix(mut self, suffix: &'static str) -> Result<Self, Box<dyn Error>> {
+        if suffix.is_empty() {
+            return Err("Query message suffix cannot be empty".into());
+        }
+        self.config.query_message_suffix = suffix;
+        Ok(self)
+    }
+
+    /// Set the router function name for the generated router functions (default: "make_router").
+    /// It cannot be the same as any of the rpc method names in your proto file or it will conflict.
+    pub fn router_func_name(mut self, name: impl AsRef<str>) -> Self {
+        self.config.router_func_name = syn::Ident::new(name.as_ref(), Span::call_site());
+        self
+    }
+
+    /// Set the path to the file descriptor set.
+    pub fn file_descriptor_set_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.fds_path = Some(path.into());
         self
     }
 

@@ -7,6 +7,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // 2. tonic2axum_build: Configure the Builder
     let mut builder = tonic2axum_build::Builder::new()
         .tonic_builder(tonic_builder)
+        .value_suffix("")
+        .type_suffix("")
         .generate_openapi(true);
 
     // 3. tonic2axum_build: Compile the proto files and return the file descriptor set and its raw bytes.

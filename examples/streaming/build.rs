@@ -8,6 +8,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut builder = tonic2axum_build::Builder::new()
         .tonic_builder(tonic_builder)
         .custom_state_type("Greeter", "crate::Greeter")?
+        .value_suffix("")
+        .type_suffix("")
         .generate_openapi(true);
 
     // 3. tonic2axum_build: Compile the proto files and return the file descriptor set and its raw bytes.

@@ -168,13 +168,19 @@ impl NewMessages {
             }
         }
 
-        // Create a new message if no matching message was found (existing message is unnumbered, so second number is 2)
-        let suffix_num = messages.len() + 2;
-        let name: LocalStr = format!(
-            "{}{}{}{}",
-            &*input_message_name, suffix, suffix_num, type_suffix
-        )
-        .into();
+        // Create a new message if no matching message was found
+        let name: LocalStr = if messages.is_empty() {
+            // No existing messages, so first number is 1 (and we omit number in name for #1)
+            format!("{}{}{}", &*input_message_name, suffix, type_suffix).into()
+        } else {
+            // Since we already have an existing message, we need to add a number to the suffix
+            let suffix_num = messages.len() + 1;
+            format!(
+                "{}{}{}{}",
+                &*input_message_name, suffix, suffix_num, type_suffix
+            )
+            .into()
+        };
         let name = name.optimize();
 
         let mut message = Message::new(name);
