@@ -32,7 +32,7 @@ impl Default for GeneratorConfig {
         Self {
             state_types: HashMap::new(),
             skip_bidi_streaming: true,
-            generate_openapi: true,
+            generate_openapi: false,
             value_suffix: "__",
             type_suffix: "__",
             body_message_suffix: "Body",
@@ -66,7 +66,7 @@ impl Builder {
         self
     }
 
-    /// Set whether to generate an OpenAPI specification (default: true).
+    /// Set whether to generate an OpenAPI specification (default: false).
     pub fn generate_openapi(mut self, enable: bool) -> Self {
         self.config.generate_openapi = enable;
         self
