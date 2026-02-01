@@ -208,7 +208,7 @@ impl Generator {
         let method_name = ident(&method_details.method);
         let path = method_details.path.as_ref();
 
-        let params = if method_details.path_fields.is_empty() || method_details.query_str.is_none()
+        let params = if method_details.path_fields.is_empty() && method_details.query_str.is_none()
         {
             None
         } else {
