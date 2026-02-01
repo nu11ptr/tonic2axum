@@ -300,21 +300,22 @@ impl Generator {
                             req,
                         )?;
 
-                        let req = if func_parts.verbatim_request() && !method.client_streaming {
-                            // Verbatim request so no need to build the request. It is a Json<T> (a tuple struct).
-                            quote! { #req.0 }
-                        } else if func_parts.empty_request() && input_type == "()" {
-                            // Special case for the empty request which tonic replaces with unit.
-                            quote! { () }
-                        } else if func_parts.empty_request() && input_type != "()" {
-                            // Empty message, but not the special google.protobuf.Empty message, so a struct with no fields
-                            // needs to be created as there won't be a parameter for it.
-                            let input_type = ident(input_type);
-                            quote! { super::#input_type {} }
-                        } else {
-                            // Normal case, just reference the request itself directly.
-                            quote! { #req }
-                        };
+                        let req_payload =
+                            if func_parts.verbatim_request() && !method.client_streaming {
+                                // Verbatim request so no need to build the request. There will only be a Json<T> tuple struct extractor.
+                                quote! { #req.0 }
+                            } else if func_parts.empty_request() && input_type == "()" {
+                                // Special case for the empty request which tonic replaces with unit, so no extractors at all.
+                                quote! { () }
+                            } else if func_parts.empty_request() && input_type != "()" {
+                                // Empty message, but not the special google.protobuf.Empty message, so a struct with no fields
+                                // needs to be created as there won't be any extractors at all.
+                                let input_type = ident(input_type);
+                                quote! { super::#input_type {} }
+                            } else {
+                                // Normal case, just reference the request itself that was built from the extracted params.
+                                quote! { #req }
+                            };
 
                         let FunctionParts {
                             path_extractor,
@@ -366,7 +367,7 @@ impl Generator {
                                 #body_extractor
                             ) -> http::Response<Body> {
                                 #request_builder
-                                let #req = tonic2axum::#request_func_name(#headers, #extensions, #req);
+                                let #req = tonic2axum::#request_func_name(#headers, #extensions, #req_payload);
                                 tonic2axum::#response_func_name(#state.#func_name(#req).await)
                             }
                         };
