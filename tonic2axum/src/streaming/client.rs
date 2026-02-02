@@ -150,3 +150,62 @@ impl<T> Decoder for FakeGrpcFrameStreamingHelper<T> {
             .map_err(|e| tonic::Status::internal(e.to_string()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::extract::FromRequest as _;
+    use bytes::Bytes;
+    use futures_util::StreamExt as _;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct TestRequest {
+        id: u32,
+    }
+
+    impl From<TestRequest> for Bytes {
+        fn from(item: TestRequest) -> Self {
+            let mut line = serde_json::to_string(&item).unwrap();
+            line.push('\n');
+            line.into()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_make_stream_request_roundtrip() {
+        let requests = vec![
+            TestRequest { id: 1 },
+            TestRequest { id: 2 },
+            TestRequest { id: 3 },
+        ];
+        let cloned_requests = requests.clone();
+        let stream = async_stream::stream! {
+            for req in cloned_requests {
+                yield Ok::<_, tonic::Status>(req);
+            }
+        };
+
+        // We have to build JsonLines this way because it has to be built from a request to get the correct type parameters.
+        let body = axum::body::Body::from_stream(stream);
+        let request = http::Request::new(body);
+        let json_lines: JsonLines<TestRequest> =
+            JsonLines::from_request(request, &mut ()).await.unwrap();
+        let headers = http::HeaderMap::new();
+        let extensions = http::Extensions::new();
+
+        let request = make_stream_request(headers, extensions, json_lines);
+
+        let mut streaming = request.into_inner();
+        let mut received_items = Vec::with_capacity(requests.len());
+
+        while let Some(result) = streaming.next().await {
+            match result {
+                Ok(item) => received_items.push(item),
+                Err(status) => panic!("Unexpected error: {}", status),
+            }
+        }
+
+        assert_eq!(received_items, requests);
+    }
+}

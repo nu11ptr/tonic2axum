@@ -26,6 +26,8 @@ client-streaming = [
     "tonic/server",
 ]
 
+# Dependencies
+
 [dependencies.axum]
 version = "0.8"
 default-features = false
@@ -63,3 +65,22 @@ default-features = false
 [dependencies.tonic]
 version = "0.14"
 default-features = false
+
+# Dev dependencies
+
+[dev-dependencies.async-stream]
+version = "0.3"
+default-features = false
+
+[dev-dependencies.futures-util]
+version = "0.3"
+default-features = false
+
+[dev-dependencies.serde_json]
+version = "1"
+default-features = false
+
+[dev-dependencies.tokio]
+version = "1"
+default-features = false
+features = ["rt", "macros"]
