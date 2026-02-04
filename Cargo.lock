@@ -1212,6 +1212,7 @@ dependencies = [
  "prost-reflect",
  "quote",
  "syn",
+ "tempfile",
  "tonic-prost-build",
 ]
 

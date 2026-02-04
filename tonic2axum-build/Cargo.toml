@@ -20,6 +20,8 @@ default = ["format"]
 format = ["prost-build/format"]
 cleanup-markdown = ["prost-build/cleanup-markdown"]
 
+# Dependencies
+
 [dependencies.flexstr]
 version = "0.11"
 default-features = false
@@ -52,4 +54,10 @@ features = ["extra-traits"]
 
 [dependencies.tonic-prost-build]
 version = "0.14"
+default-features = false
+
+# Dev dependencies
+
+[dev-dependencies.tempfile]
+version = "3"
 default-features = false
