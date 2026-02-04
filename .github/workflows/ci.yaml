@@ -12,6 +12,8 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    env:
+      OUT_DIR: ${{ runner.temp }}/out
     steps:
       - name: Checkout source code
         uses: actions/checkout@v5
