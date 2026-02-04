@@ -12,11 +12,12 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    env:
-      OUT_DIR: ${{ runner.temp }}/out
     steps:
       - name: Checkout source code
         uses: actions/checkout@v5
+
+      - name: Set OUT_DIR
+        run: echo "OUT_DIR=${{ runner.temp }}/out" >> $GITHUB_ENV
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
