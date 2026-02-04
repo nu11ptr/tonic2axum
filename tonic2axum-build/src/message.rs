@@ -67,7 +67,7 @@ impl fmt::Display for DocComments {
         let mut first = true;
         for comment in &self.0 {
             if !first {
-                write!(f, "\n")?;
+                writeln!(f)?;
             }
             write!(f, "{}", comment.as_ref())?;
             first = false;

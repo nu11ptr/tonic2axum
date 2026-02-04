@@ -224,7 +224,7 @@ impl Generator {
             let query_params = method_details
                 .query_str
                 .iter()
-                .map(|&MessageDetails { ref type_name, .. }| quote! { super::#type_name });
+                .map(|MessageDetails { type_name, .. }| quote! { super::#type_name });
 
             Some(quote! { , params(#(#path_params ,)* #(#query_params),*) })
         };
@@ -281,10 +281,7 @@ impl Generator {
                 _ => None,
             };
 
-            match scheme {
-                Some(scheme) => Some(quote! { , security((#scheme = [])) }),
-                None => None,
-            }
+            scheme.map(|scheme| quote! { , security((#scheme = [])) })
         } else {
             None
         };
@@ -373,7 +370,7 @@ impl Generator {
                             Some(self.generate_openapi_path_attr(
                                 service_name,
                                 &method_details,
-                                &method,
+                                method,
                             ))
                         } else {
                             None

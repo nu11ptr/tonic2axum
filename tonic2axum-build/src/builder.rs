@@ -97,7 +97,7 @@ impl Builder {
             return Err("Both service name and state type must be provided".into());
         }
 
-        let type_: syn::Type = syn::parse_str(state_type.as_ref())?;
+        let type_: syn::Type = syn::parse_str(state_type)?;
         self.config.state_types.insert(
             service_name.into_owned(),
             StateType::Custom(Box::new(type_)),

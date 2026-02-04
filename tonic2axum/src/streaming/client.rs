@@ -190,7 +190,7 @@ mod tests {
         let body = axum::body::Body::from_stream(stream);
         let request = http::Request::new(body);
         let json_lines: JsonLines<TestRequest> =
-            JsonLines::from_request(request, &mut ()).await.unwrap();
+            JsonLines::from_request(request, &()).await.unwrap();
         let headers = http::HeaderMap::new();
         let extensions = http::Extensions::new();
 
