@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
@@ -13,16 +14,29 @@ use crate::{ProstConfig, TonicBuilder, codegen::Generator};
 
 const DEFAULT_FDS_FILE_NAME: &str = "fds.bin";
 
-/// The state type for a given service.
-pub enum StateType {
+pub(crate) enum StateType {
     Custom(Box<syn::Type>),
     Generic,
 }
 
+/// The security configuration for the OpenAPI documentation.
+pub enum OpenApiSecurity {
+    /// All services use the same security scheme.
+    AllServices(&'static str),
+    /// Specific services use the same security scheme.
+    SpecificServices(&'static str, Vec<&'static str>),
+    /// All services except the specified services use the same security scheme.
+    AllServicesExcept(&'static str, Vec<&'static str>),
+}
+
 pub(crate) struct GeneratorConfig {
     pub state_types: HashMap<LocalStr, StateType>,
+
     pub generate_openapi: bool,
     pub streaming_content_type: &'static str,
+    pub openapi_security: Option<OpenApiSecurity>,
+
+    // Code gen naming and comments
     pub value_suffix: &'static str,
     pub type_suffix: &'static str,
     pub body_message_suffix: &'static str,
@@ -37,6 +51,7 @@ impl Default for GeneratorConfig {
         Self {
             state_types: HashMap::new(),
             generate_openapi: false,
+            openapi_security: None,
             streaming_content_type: "application/x-ndjson",
             value_suffix: "__",
             type_suffix: "__",
@@ -124,6 +139,12 @@ impl Builder {
         }
         self.config.streaming_content_type = content_type;
         Ok(self)
+    }
+
+    /// Set the security configuration for the OpenAPI documentation.
+    pub fn openapi_security(mut self, security: OpenApiSecurity) -> Self {
+        self.config.openapi_security = Some(security);
+        self
     }
 
     /// Set the value suffix for the generated value bindings (default: "__"). It can be empty to avoid the suffix,
@@ -228,7 +249,7 @@ impl Builder {
         if self.fds_path.is_none() {
             let mut fds_path = match std::env::var("OUT_DIR") {
                 Ok(out_dir) => PathBuf::from(out_dir),
-                Err(_) => PathBuf::from("."),
+                Err(_) => env::temp_dir(),
             };
             fds_path.push(DEFAULT_FDS_FILE_NAME);
             self.fds_path = Some(fds_path);

@@ -7,7 +7,7 @@ use prost_reflect::{DescriptorPool, DynamicMessage};
 use quote::{format_ident, quote};
 
 use crate::{
-    builder::GeneratorConfig,
+    builder::{GeneratorConfig, OpenApiSecurity},
     codegen::helpers::{FunctionParts, ServiceType, ValueNames, ident},
     http::{HttpOptions, MessageDetails, MethodDetails},
     message::{ExistingMessages, Message, NewMessages},
@@ -265,7 +265,31 @@ impl Generator {
             )
         };
 
-        quote! { #[utoipa::path(#method_name, path = #path, tag = #service_name #params #request_body #responses)] }
+        let security = if let Some(security) = &self.config.openapi_security {
+            let scheme = match security {
+                OpenApiSecurity::AllServices(scheme) => Some(scheme),
+                OpenApiSecurity::SpecificServices(scheme, services)
+                    if services.contains(&service_name) =>
+                {
+                    Some(scheme)
+                }
+                OpenApiSecurity::AllServicesExcept(scheme, services)
+                    if !services.contains(&service_name) =>
+                {
+                    Some(scheme)
+                }
+                _ => None,
+            };
+
+            match scheme {
+                Some(scheme) => Some(quote! { , security((#scheme = [])) }),
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        quote! { #[utoipa::path(#method_name, path = #path, tag = #service_name #params #request_body #responses #security)] }
     }
 
     fn generate_func(

@@ -1,5 +1,5 @@
 use tempfile::tempdir;
-use tonic2axum_build::{Builder, ProstConfig};
+use tonic2axum_build::{Builder, OpenApiSecurity, ProstConfig};
 
 #[test]
 fn test_compile() {
@@ -16,5 +16,25 @@ fn test_compile() {
 
     let actual = std::fs::read_to_string(dir.path().join("test.v1.rs")).unwrap();
     let expected = std::fs::read_to_string("tests/testdata/test.v1.rs").unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn test_compile_with_openapi_security() {
+    let dir = tempdir().unwrap();
+
+    let mut config = ProstConfig::new();
+    config
+        .out_dir(dir.path())
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    Builder::new()
+        .prost_config(config)
+        .generate_openapi(true)
+        .openapi_security(OpenApiSecurity::AllServices("Bearer"))
+        .compile(&["tests/proto/test/v1/test.proto"], &["tests/proto"])
+        .unwrap();
+
+    let actual = std::fs::read_to_string(dir.path().join("test.v1.rs")).unwrap();
+    let expected = std::fs::read_to_string("tests/testdata/openapi/test.v1.rs").unwrap();
     assert_eq!(actual, expected);
 }

@@ -5,7 +5,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens as _, format_ident, quote};
 
 use crate::{
-    StateType,
+    builder::StateType,
     http::{MessageDetails, MessageHandling, MethodDetails},
     message::Field,
 };
