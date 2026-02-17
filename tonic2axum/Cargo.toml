@@ -17,16 +17,31 @@ edition = "2024"
 
 [features]
 default = []
-http-server-streaming = ["dep:axum-extra", "_server-streaming"]
-http-client-streaming = ["dep:axum-extra", "_client-streaming"]
-ws-server-streaming = ["axum/ws", "_server-streaming"]
-ws-client-streaming = ["axum/ws", "_client-streaming"]
+
+# Internal streaming features
 _server-streaming = ["dep:futures-core"]
 _client-streaming = [
     "dep:futures-core",
     "dep:bytes",
     "dep:http-body",
     "tonic/server",
+]
+
+# HTTP streaming features
+http-streaming = ["http-client-streaming", "http-server-streaming"]
+http-server-streaming = ["dep:axum-extra", "_server-streaming"]
+http-client-streaming = ["dep:axum-extra", "_client-streaming"]
+
+# WebSocket streaming features
+ws-streaming = ["ws-client-streaming", "ws-server-streaming"]
+ws-server-streaming = ["axum/ws", "_server-streaming"]
+ws-client-streaming = [
+    "axum/ws",
+    "dep:futures-util",
+    "dep:prost",
+    "dep:serde_json",
+    "dep:tracing",
+    "_client-streaming",
 ]
 
 # Dependencies
@@ -52,6 +67,11 @@ version = "0.3"
 default-features = false
 optional = true
 
+[dependencies.futures-util]
+version = "0.3"
+default-features = false
+optional = true
+
 [dependencies.http]
 version = "1"
 default-features = false
@@ -61,13 +81,28 @@ version = "1"
 default-features = false
 optional = true
 
+[dependencies.prost]
+version = "0.14"
+default-features = false
+optional = true
+
 [dependencies.serde]
 version = "1"
 default-features = false
 
+[dependencies.serde_json]
+version = "1"
+default-features = false
+optional = true
+
 [dependencies.tonic]
 version = "0.14"
 default-features = false
+
+[dependencies.tracing]
+version = "0.1"
+default-features = false
+optional = true
 
 # Dev dependencies
 

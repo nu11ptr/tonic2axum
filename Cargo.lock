@@ -1287,10 +1287,12 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "prost",
  "serde",
  "serde_json",
  "tokio",
  "tonic",
+ "tracing",
 ]
 
 [[package]]

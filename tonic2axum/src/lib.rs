@@ -14,6 +14,9 @@ pub use streaming::make_stream_response;
 #[cfg(feature = "http-client-streaming")]
 pub use streaming::make_stream_request;
 
+#[cfg(feature = "ws-client-streaming")]
+pub use streaming::{make_ws_stream_request, process_ws_response};
+
 /// Converts the parts of an HTTP request into a Tonic request
 pub fn make_request<T>(
     headers: http::HeaderMap,

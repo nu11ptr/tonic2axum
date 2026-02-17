@@ -9,3 +9,6 @@ pub use client::make_stream_request;
 
 #[cfg(feature = "http-server-streaming")]
 pub use server::make_stream_response;
+
+#[cfg(feature = "ws-client-streaming")]
+pub use client::{make_ws_stream_request, process_ws_response};
