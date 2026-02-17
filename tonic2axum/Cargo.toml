@@ -17,9 +17,12 @@ edition = "2024"
 
 [features]
 default = []
-server-streaming = ["dep:axum-extra", "dep:futures-core"]
-client-streaming = [
-    "dep:axum-extra",
+http-server-streaming = ["dep:axum-extra", "_server-streaming"]
+http-client-streaming = ["dep:axum-extra", "_client-streaming"]
+ws-server-streaming = ["axum/ws", "_server-streaming"]
+ws-client-streaming = ["axum/ws", "_client-streaming"]
+_server-streaming = ["dep:futures-core"]
+_client-streaming = [
     "dep:futures-core",
     "dep:bytes",
     "dep:http-body",

@@ -1,11 +1,11 @@
-#[cfg(feature = "client-streaming")]
+#[cfg(feature = "_client-streaming")]
 mod client;
 
-#[cfg(feature = "server-streaming")]
+#[cfg(feature = "_server-streaming")]
 mod server;
 
-#[cfg(feature = "client-streaming")]
+#[cfg(feature = "http-client-streaming")]
 pub use client::make_stream_request;
 
-#[cfg(feature = "server-streaming")]
+#[cfg(feature = "http-server-streaming")]
 pub use server::make_stream_response;

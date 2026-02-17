@@ -49,7 +49,7 @@ default-features = false
 
 [dependencies.tonic2axum]
 path = "../../tonic2axum"
-features = ["client-streaming", "server-streaming"]
+features = ["http-client-streaming", "http-server-streaming"]
 
 [dependencies.utoipa]
 version = "5"

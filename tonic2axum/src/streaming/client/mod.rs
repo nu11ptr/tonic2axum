@@ -5,49 +5,35 @@ use std::{
     task::Poll,
 };
 
-use axum_extra::extract::JsonLines;
-use futures_core::Stream as _;
+use futures_core::Stream;
 use http_body::Frame;
-use tonic::{
-    codec::{DecodeBuf, Decoder},
-    metadata::MetadataMap,
-};
+use tonic::codec::{DecodeBuf, Decoder};
 
-// Alternative designs to consider (that are less hacky):
-// 1. Use JsonLines<T>, but use something like bitcode in Body to serialize, and then deserialize the T in the Decoder.
-//
-// 2. Use a raw axum Body as the request, return the bytes from BodyDataStream in Body trait (using a bytes::Chain to
-// prepend a gRPC header), do JSON deserialization in the Decoder.
-// Update: Actually, #2 is probably not possible without tracking the JSON lines and buffering the input since we would need to
-// know how long the input is to prepend the gRPC header.
+#[cfg(feature = "http-client-streaming")]
+pub mod http_client;
 
-/// Converts a JSON Lines request into a Tonic streaming request
-pub fn make_stream_request<T: Send + 'static>(
-    headers: http::HeaderMap,
-    extensions: http::Extensions,
-    lines: JsonLines<T>,
-) -> tonic::Request<tonic::Streaming<T>> {
-    let metadata = MetadataMap::from_headers(headers);
-    // HACK: Unfortunately, Streaming requires a real gRPC frame, so we need to fake it, by returning a fake frame from the
-    // Body impl while prepping the real items from JsonLines to return by Decoder.
-    let helper = FakeGrpcFrameStreamingHelper::new(lines);
-    // Since we use items polled by Body, but returned by Decoder, we need to clone the helper to use as both parameters
-    // to the Streaming constructor.
-    let streaming = tonic::Streaming::new_request(helper.clone(), helper, None, None);
-    tonic::Request::from_parts(metadata, extensions, streaming)
-}
+#[cfg(feature = "http-client-streaming")]
+pub use http_client::make_stream_request;
 
 // *** FakeGrpcFrameStreamingHelperInner ***
 
-struct FakeGrpcFrameStreamingHelperInner<T> {
-    lines: Pin<Box<JsonLines<T>>>,
+struct FakeGrpcFrameStreamingHelperInner<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    lines: Pin<Box<S>>,
     next: Option<Result<T, axum::Error>>,
 }
 
-impl<T> FakeGrpcFrameStreamingHelperInner<T> {
-    pub fn new(lines: JsonLines<T>) -> Self {
+impl<S, T> FakeGrpcFrameStreamingHelperInner<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    pub fn new(stream: S) -> Self {
         Self {
-            lines: Box::pin(lines),
+            lines: Box::pin(stream),
             next: None,
         }
     }
@@ -78,13 +64,21 @@ impl bytes::Buf for EmptyGrpcFrame {
 
 // *** FakeGrpcFrameStreamingHelper ***
 
-struct FakeGrpcFrameStreamingHelper<T> {
-    inner: Arc<Mutex<FakeGrpcFrameStreamingHelperInner<T>>>,
+struct FakeGrpcFrameStreamingHelper<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    inner: Arc<Mutex<FakeGrpcFrameStreamingHelperInner<S, T>>>,
     empty_frame: EmptyGrpcFrame,
 }
 
-impl<T> FakeGrpcFrameStreamingHelper<T> {
-    pub fn new(lines: JsonLines<T>) -> Self {
+impl<S, T> FakeGrpcFrameStreamingHelper<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
+    pub fn new(lines: S) -> Self {
         Self {
             inner: Arc::new(Mutex::new(FakeGrpcFrameStreamingHelperInner::new(lines))),
             empty_frame: EmptyGrpcFrame::default(),
@@ -92,7 +86,11 @@ impl<T> FakeGrpcFrameStreamingHelper<T> {
     }
 }
 
-impl<T> Clone for FakeGrpcFrameStreamingHelper<T> {
+impl<S, T> Clone for FakeGrpcFrameStreamingHelper<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -101,7 +99,11 @@ impl<T> Clone for FakeGrpcFrameStreamingHelper<T> {
     }
 }
 
-impl<T> tonic::transport::Body for FakeGrpcFrameStreamingHelper<T> {
+impl<S, T> tonic::transport::Body for FakeGrpcFrameStreamingHelper<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
     type Data = EmptyGrpcFrame;
     type Error = Infallible;
 
@@ -134,7 +136,11 @@ impl<T> tonic::transport::Body for FakeGrpcFrameStreamingHelper<T> {
     }
 }
 
-impl<T> Decoder for FakeGrpcFrameStreamingHelper<T> {
+impl<S, T> Decoder for FakeGrpcFrameStreamingHelper<S, T>
+where
+    S: Stream<Item = Result<T, axum::Error>> + Send + 'static,
+    T: Send + 'static,
+{
     type Item = T;
 
     type Error = tonic::Status;
@@ -155,6 +161,7 @@ impl<T> Decoder for FakeGrpcFrameStreamingHelper<T> {
 mod tests {
     use super::*;
     use axum::extract::FromRequest as _;
+    use axum_extra::extract::JsonLines;
     use bytes::Bytes;
     use futures_util::StreamExt as _;
     use serde::{Deserialize, Serialize};
