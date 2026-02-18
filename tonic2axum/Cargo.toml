@@ -26,6 +26,13 @@ _client-streaming = [
     "dep:http-body",
     "tonic/server",
 ]
+_ws-streaming = [
+    "axum/ws",
+    "dep:futures-util",
+    "dep:prost",
+    "dep:serde_json",
+    "dep:tracing",
+]
 
 # HTTP streaming features
 http-streaming = ["http-client-streaming", "http-server-streaming"]
@@ -34,15 +41,8 @@ http-client-streaming = ["dep:axum-extra", "_client-streaming"]
 
 # WebSocket streaming features
 ws-streaming = ["ws-client-streaming", "ws-server-streaming"]
-ws-server-streaming = ["axum/ws", "_server-streaming"]
-ws-client-streaming = [
-    "axum/ws",
-    "dep:futures-util",
-    "dep:prost",
-    "dep:serde_json",
-    "dep:tracing",
-    "_client-streaming",
-]
+ws-server-streaming = ["_server-streaming", "_ws-streaming"]
+ws-client-streaming = ["_client-streaming", "_ws-streaming"]
 
 # Dependencies
 

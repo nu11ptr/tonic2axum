@@ -9,11 +9,11 @@ use futures_core::Stream;
 use http_body::Frame;
 use tonic::codec::{DecodeBuf, Decoder};
 
-#[cfg(feature = "ws-client-streaming")]
-mod ws_client;
-
 #[cfg(feature = "http-client-streaming")]
 mod http_client;
+
+#[cfg(feature = "ws-client-streaming")]
+mod ws_client;
 
 #[cfg(feature = "http-client-streaming")]
 pub use http_client::make_stream_request;

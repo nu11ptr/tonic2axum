@@ -1,17 +1,16 @@
-use axum::extract::ws::{
-    CloseFrame, Message, WebSocket,
-    close_code::{AGAIN, AWAY, ERROR, INVALID, NORMAL, POLICY, SIZE, UNSUPPORTED},
-};
-use bytes::BytesMut;
+use axum::extract::ws::{Message, WebSocket, close_code::NORMAL};
 use futures_core::Stream;
 use futures_util::{
-    SinkExt as _, StreamExt as _,
+    StreamExt as _,
     stream::{SplitSink, SplitStream},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use tonic::metadata::MetadataMap;
 
-use crate::streaming::client::FakeGrpcFrameStreamingHelper;
+use crate::streaming::{
+    client::FakeGrpcFrameStreamingHelper,
+    ws::{send_ws_close_frame, send_ws_error, send_ws_msg},
+};
 
 /// Converts a web socket request into a Tonic streaming request
 pub fn make_ws_stream_request<T: Send + Default + DeserializeOwned + prost::Message + 'static>(
@@ -36,12 +35,10 @@ fn convert_stream<T: Send + Default + DeserializeOwned + prost::Message + 'stati
         match message {
             // Text frame - decode as JSON
             Ok(Message::Text(message)) => {
-                Some(serde_json::from_str(&message).map_err(|e| axum::Error::new(e)))
+                Some(serde_json::from_str(&message).map_err(axum::Error::new))
             }
             // Binary frame - decode as protobuf
-            Ok(Message::Binary(message)) => {
-                Some(T::decode(message).map_err(|e| axum::Error::new(e)))
-            }
+            Ok(Message::Binary(message)) => Some(T::decode(message).map_err(axum::Error::new)),
             // Close frame with error code
             Ok(Message::Close(Some(close_frame))) => ws_code_to_error(close_frame.code).map(Err),
             // Something else - skip it
@@ -68,15 +65,8 @@ pub async fn process_ws_response<T: Send + prost::Message + Serialize + 'static>
     mut ws: SplitSink<WebSocket, Message>,
     protobuf: bool,
 ) {
-    if let Err(e) = handle_ws_response(response, &mut ws, protobuf).await {
-        tracing::error!("Error processing WS response: {}", e);
-        let frame = CloseFrame {
-            code: ERROR,
-            reason: e.to_string().into(),
-        };
-        if let Err(e) = ws.send(Message::Close(Some(frame))).await {
-            tracing::error!("Error sending close frame error message: {}", e);
-        }
+    if let Err(err) = handle_ws_response(response, &mut ws, protobuf).await {
+        send_ws_error(&mut ws, err).await;
     }
 }
 
@@ -84,43 +74,12 @@ async fn handle_ws_response<T: Send + prost::Message + Serialize + 'static>(
     response: Result<tonic::Response<T>, tonic::Status>,
     ws: &mut SplitSink<WebSocket, Message>,
     protobuf: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), axum::Error> {
     match response {
         Ok(response) => {
             let msg = response.into_inner();
-
-            if protobuf {
-                let mut buf = BytesMut::with_capacity(msg.encoded_len());
-                msg.encode(&mut buf)?;
-                ws.send(Message::Binary(buf.freeze())).await?;
-            } else {
-                let text = serde_json::to_string(&msg)?;
-                ws.send(Message::Text(text.into())).await?;
-            }
+            send_ws_msg(ws, msg, protobuf).await
         }
-        Err(status) => {
-            ws.send(Message::Close(Some(tonic_status_to_ws_close_frame(status))))
-                .await?;
-        }
-    }
-    Ok(())
-}
-
-fn tonic_status_to_ws_close_frame(status: tonic::Status) -> CloseFrame {
-    let code = match status.code() {
-        tonic::Code::Ok => NORMAL,
-        tonic::Code::Cancelled => AWAY,
-        tonic::Code::InvalidArgument => INVALID,
-        tonic::Code::PermissionDenied => POLICY,
-        tonic::Code::Unauthenticated => POLICY,
-        tonic::Code::ResourceExhausted => SIZE,
-        tonic::Code::Unimplemented => UNSUPPORTED,
-        tonic::Code::DeadlineExceeded => AGAIN,
-        tonic::Code::Unavailable => AGAIN,
-        _ => ERROR,
-    };
-    CloseFrame {
-        code,
-        reason: status.message().into(),
+        Err(status) => send_ws_close_frame(ws, status).await,
     }
 }
