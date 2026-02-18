@@ -16,33 +16,18 @@ readme = "README.md"
 edition = "2024"
 
 [features]
-default = []
+default = ["http-streaming", "ws-streaming"]
 
-# Internal streaming features
-_server-streaming = ["dep:futures-core"]
-_client-streaming = [
-    "dep:futures-core",
-    "dep:bytes",
-    "dep:http-body",
-    "tonic/server",
-]
-_ws-streaming = [
+_streaming = ["dep:futures-core", "dep:bytes", "dep:http-body", "tonic/server"]
+http-streaming = ["dep:axum-extra", "_streaming"]
+ws-streaming = [
     "axum/ws",
     "dep:futures-util",
     "dep:prost",
     "dep:serde_json",
     "dep:tracing",
+    "_streaming",
 ]
-
-# HTTP streaming features
-http-streaming = ["http-client-streaming", "http-server-streaming"]
-http-server-streaming = ["dep:axum-extra", "_server-streaming"]
-http-client-streaming = ["dep:axum-extra", "_client-streaming"]
-
-# WebSocket streaming features
-ws-streaming = ["ws-client-streaming", "ws-server-streaming"]
-ws-server-streaming = ["_server-streaming", "_ws-streaming"]
-ws-client-streaming = ["_client-streaming", "_ws-streaming"]
 
 # Dependencies
 
@@ -74,7 +59,6 @@ optional = true
 
 [dependencies.http]
 version = "1"
-default-features = false
 
 [dependencies.http-body]
 version = "1"

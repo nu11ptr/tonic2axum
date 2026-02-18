@@ -5,19 +5,19 @@ use axum::response::IntoResponse as _;
 use serde::Serialize;
 use tonic::metadata::MetadataMap;
 
-#[cfg(any(feature = "_client-streaming", feature = "_server-streaming"))]
+#[cfg(feature = "_streaming")]
 mod streaming;
 
-#[cfg(feature = "http-server-streaming")]
+#[cfg(feature = "http-streaming")]
 pub use streaming::make_stream_response;
 
-#[cfg(feature = "http-client-streaming")]
+#[cfg(feature = "http-streaming")]
 pub use streaming::make_stream_request;
 
-#[cfg(feature = "ws-client-streaming")]
+#[cfg(feature = "ws-streaming")]
 pub use streaming::{make_ws_stream_request, process_ws_response};
 
-#[cfg(feature = "ws-server-streaming")]
+#[cfg(feature = "ws-streaming")]
 pub use streaming::{make_ws_request, process_ws_stream_response};
 
 /// Converts the parts of an HTTP request into a Tonic request
