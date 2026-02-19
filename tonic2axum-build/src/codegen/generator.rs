@@ -78,6 +78,8 @@ impl Generator {
 
         let mut handler_funcs = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
+        let mut ws_handler_funcs = Vec::new();
+        let mut ws_routes = Vec::new();
         let mut has_client_streaming = false;
 
         for method in &service.methods {
@@ -87,6 +89,19 @@ impl Generator {
                 if method.client_streaming {
                     has_client_streaming = true;
                 }
+
+                // Generate WS handler for streaming RPCs when sockets are enabled
+                if self.config.generate_web_sockets
+                    && (method.client_streaming || method.server_streaming)
+                {
+                    if let Some(path) = self.options.get_path(&service.name, &method.proto_name) {
+                        let (ws_func, ws_route) =
+                            self.generate_ws_func(method, &service_type, &path);
+                        ws_handler_funcs.push(ws_func);
+                        ws_routes.push(ws_route);
+                    }
+                }
+
                 handler_funcs.push(function);
                 routes.push(route);
             }
@@ -113,11 +128,33 @@ impl Generator {
         } else {
             None
         };
+        let has_ws = !ws_routes.is_empty();
+        let use_ws = if has_ws {
+            Some(quote! {
+                use axum::extract::WebSocketUpgrade;
+                use axum::response::Response;
+            })
+        } else {
+            None
+        };
         let use_trait = service_type.use_trait.as_ref();
         let use_routing = if self.config.generate_openapi {
+            if has_ws {
+                quote! {
+                    use axum::routing::any;
+                    use utoipa_axum::routes;
+                    use utoipa_axum::router::OpenApiRouter;
+                }
+            } else {
+                quote! {
+                    use utoipa_axum::routes;
+                    use utoipa_axum::router::OpenApiRouter;
+                }
+            }
+        } else if has_ws {
             quote! {
-                use utoipa_axum::routes;
-                use utoipa_axum::router::OpenApiRouter;
+                use axum::routing::{any, get, post, put, delete, patch};
+                use axum::Router;
             }
         } else {
             quote! {
@@ -125,7 +162,7 @@ impl Generator {
                 use axum::Router;
             }
         };
-        let router_func = self.generate_router(&service.name, &service_type, routes);
+        let router_func = self.generate_router(&service.name, &service_type, routes, ws_routes);
 
         let module = quote! {
             /// Generated axum handlers and router.
@@ -138,11 +175,14 @@ impl Generator {
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
                 #use_json_lines
+                #use_ws
                 #use_routing
 
                 #use_trait
 
                 #(#handler_funcs)*
+
+                #(#ws_handler_funcs)*
 
                 #router_func
             }
@@ -419,11 +459,86 @@ impl Generator {
         }
     }
 
+    fn generate_ws_func(
+        &self,
+        method: &prost_build::Method,
+        service_type: &ServiceType,
+        path: &str,
+    ) -> (TokenStream, TokenStream) {
+        let (_, headers, extensions, state) = self.value_names.names();
+        let protobuf = format_ident!("protobuf{}", self.config.value_suffix);
+        let ws_upgrade = format_ident!("ws_upgrade{}", self.config.value_suffix);
+
+        let func_name = ident(&method.name);
+        let ws_func_name = format_ident!("{}_ws", method.name);
+        let state_type = &service_type.state_type_name;
+
+        let callback_body = if method.client_streaming && method.server_streaming {
+            // Bidi streaming
+            quote! {
+                let request = tonic2axum::make_ws_stream_request(#headers, #extensions, stream);
+                let response = #state.#func_name(request).await;
+                tonic2axum::process_ws_stream_response(response, sink, #protobuf).await;
+            }
+        } else if method.client_streaming {
+            // Client streaming
+            quote! {
+                let request = tonic2axum::make_ws_stream_request(#headers, #extensions, stream);
+                let response = #state.#func_name(request).await;
+                tonic2axum::process_ws_response(response, sink, #protobuf).await;
+            }
+        } else {
+            // Server streaming
+            quote! {
+                match tonic2axum::make_ws_request(#headers, #extensions, stream).await {
+                    Some(request) => {
+                        let response = #state.#func_name(request).await;
+                        tonic2axum::process_ws_stream_response(response, sink, #protobuf).await;
+                    }
+                    None => {
+                        tonic2axum::close_ws(sink, tonic::Status::aborted("No request received")).await;
+                    }
+                }
+            }
+        };
+
+        let func = quote! {
+            pub async fn #ws_func_name(
+                State((#state, #protobuf)): State<(#state_type, bool)>,
+                #ws_upgrade: WebSocketUpgrade,
+                #headers: http::HeaderMap,
+                #extensions: http::Extensions,
+            ) -> Response {
+                tonic2axum::upgrade_to_ws(
+                    #ws_upgrade,
+                    #headers,
+                    #extensions,
+                    #protobuf,
+                    |#headers, #extensions, stream, sink, #protobuf| async move {
+                        #callback_body
+                    },
+                )
+                .await
+            }
+        };
+
+        let ws_path_proto = format!("{}/ws/proto", path);
+        let ws_path_json = format!("{}/ws/json", path);
+
+        let routes = quote! {
+            .route(#ws_path_proto, any(#ws_func_name).with_state((state.clone(), true)))
+            .route(#ws_path_json, any(#ws_func_name).with_state((state.clone(), false)))
+        };
+
+        (func, routes)
+    }
+
     fn generate_router(
         &self,
         service_name: &str,
         service_type: &ServiceType,
         routes: Vec<TokenStream>,
+        ws_routes: Vec<TokenStream>,
     ) -> TokenStream {
         let router_func_name = &self.config.router_func_name;
         let state_type_name = &service_type.state_type_name;
@@ -436,12 +551,24 @@ impl Generator {
             ident("Router")
         };
 
-        quote! {
-            #[doc = #comment]
-            pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
-                #router_type::new()
-                    #(#routes)*
-                    .with_state(state)
+        if ws_routes.is_empty() {
+            quote! {
+                #[doc = #comment]
+                pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
+                    #router_type::new()
+                        #(#routes)*
+                        .with_state(state)
+                }
+            }
+        } else {
+            quote! {
+                #[doc = #comment]
+                pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
+                    #router_type::new()
+                        #(#routes)*
+                        .with_state(state.clone())
+                        #(#ws_routes)*
+                }
             }
         }
     }

@@ -20,8 +20,8 @@ pub use http::{make_stream_request, make_stream_response};
 
 #[cfg(feature = "ws-streaming")]
 pub use ws::{
-    make_ws_request, make_ws_stream_request, process_ws_response, process_ws_stream_response,
-    upgrade_to_ws,
+    close_ws, make_ws_request, make_ws_stream_request, process_ws_response,
+    process_ws_stream_response, upgrade_to_ws,
 };
 
 // *** FakeGrpcFrameStreamingHelperInner ***

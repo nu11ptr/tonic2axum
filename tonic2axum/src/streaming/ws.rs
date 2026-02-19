@@ -103,6 +103,13 @@ async fn send_ws_error(ws: &mut SplitSink<WebSocket, Message>, error: axum::Erro
     }
 }
 
+/// Closes a WebSocket connection with the given tonic status
+pub async fn close_ws(mut ws: SplitSink<WebSocket, Message>, status: tonic::Status) {
+    if let Err(err) = send_ws_close_frame(&mut ws, status).await {
+        tracing::error!("Error sending close frame: {}", err);
+    }
+}
+
 // *** Client functions ***
 
 /// Converts a web socket request into a Tonic streaming request

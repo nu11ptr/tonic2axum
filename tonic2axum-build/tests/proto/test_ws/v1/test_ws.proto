@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package test_ws.v1;
+
+import "google/api/annotations.proto";
+
+// The streaming test service definition.
+service StreamingTest {
+    // Server streaming RPC
+    rpc ServerStream (StreamRequest) returns (stream StreamReply) {
+        option (google.api.http) = {
+            post: "/stream/server"
+            body: "*"
+        };
+    }
+
+    // Client streaming RPC
+    rpc ClientStream (stream StreamRequest) returns (StreamReply) {
+        option (google.api.http) = {
+            post: "/stream/client"
+            body: "*"
+        };
+    }
+
+    // Bidirectional streaming RPC
+    rpc BidiStream (stream StreamRequest) returns (stream StreamReply) {
+        option (google.api.http) = {
+            post: "/stream/bidi"
+            body: "*"
+        };
+    }
+
+    // Unary RPC - should NOT generate WS handler
+    rpc UnaryCall (StreamRequest) returns (StreamReply) {
+        option (google.api.http) = {
+            post: "/stream/unary"
+            body: "*"
+        };
+    }
+}
+
+// The request message.
+message StreamRequest {
+    // The data to stream
+    string data = 1;
+}
+
+// The response message.
+message StreamReply {
+    // The streamed message
+    string message = 1;
+}

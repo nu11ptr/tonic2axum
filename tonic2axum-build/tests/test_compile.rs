@@ -4,6 +4,28 @@ mod test_compile {
     use tonic2axum_build::{Builder, OpenApiSecurity, ProstConfig};
 
     #[test]
+    fn test_compile_with_web_sockets() {
+        let dir = tempdir().unwrap();
+
+        let mut config = ProstConfig::new();
+        config
+            .out_dir(dir.path())
+            .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+        Builder::new()
+            .prost_config(config)
+            .file_descriptor_set_path(dir.path().join("fds.bin"))
+            .custom_state_type("StreamingTest", "crate::StreamingTest")
+            .unwrap()
+            .generate_web_sockets(true)
+            .compile(&["tests/proto/test_ws/v1/test_ws.proto"], &["tests/proto"])
+            .unwrap();
+
+        let actual = std::fs::read_to_string(dir.path().join("test_ws.v1.rs")).unwrap();
+        let expected = std::fs::read_to_string("tests/testdata/ws/test_ws.v1.rs").unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_compile() {
         let dir = tempdir().unwrap();
 
@@ -13,6 +35,7 @@ mod test_compile {
             .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
         Builder::new()
             .prost_config(config)
+            .file_descriptor_set_path(dir.path().join("fds.bin"))
             .compile(&["tests/proto/test/v1/test.proto"], &["tests/proto"])
             .unwrap();
 
@@ -31,6 +54,7 @@ mod test_compile {
             .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
         Builder::new()
             .prost_config(config)
+            .file_descriptor_set_path(dir.path().join("fds.bin"))
             .generate_openapi(true)
             .openapi_security(OpenApiSecurity::AllServices("Bearer"))
             .compile(&["tests/proto/test/v1/test.proto"], &["tests/proto"])

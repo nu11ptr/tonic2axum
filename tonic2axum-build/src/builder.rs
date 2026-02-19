@@ -33,6 +33,7 @@ pub(crate) struct GeneratorConfig {
     pub state_types: HashMap<LocalStr, StateType>,
 
     pub generate_openapi: bool,
+    pub generate_web_sockets: bool,
     pub streaming_content_type: &'static str,
     pub openapi_security: Option<OpenApiSecurity>,
 
@@ -51,6 +52,7 @@ impl Default for GeneratorConfig {
         Self {
             state_types: HashMap::new(),
             generate_openapi: false,
+            generate_web_sockets: false,
             openapi_security: None,
             streaming_content_type: "application/x-ndjson",
             value_suffix: "__",
@@ -126,6 +128,12 @@ impl Builder {
     /// Set whether to generate an OpenAPI specification (default: false).
     pub fn generate_openapi(mut self, enable: bool) -> Self {
         self.config.generate_openapi = enable;
+        self
+    }
+
+    /// Set whether to generate WebSocket handlers for streaming RPCs (default: false).
+    pub fn generate_web_sockets(mut self, enable: bool) -> Self {
+        self.config.generate_web_sockets = enable;
         self
     }
 

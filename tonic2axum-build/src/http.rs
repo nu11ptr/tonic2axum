@@ -344,6 +344,11 @@ impl HttpOptions {
         None
     }
 
+    pub fn get_path(&self, service_name: &str, method_name: &str) -> Option<LocalStr> {
+        self.get_http_options(service_name, method_name)
+            .map(|o| o.build_path())
+    }
+
     fn get_http_options(&self, service_name: &str, method_name: &str) -> Option<&HttpOption> {
         self.0.get(service_name)?.get(method_name)
     }
