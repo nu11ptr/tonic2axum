@@ -48,13 +48,14 @@ where
 
 // *** Shared functions ***
 
-async fn send_ws_close_frame(
-    ws: &mut SplitSink<WebSocket, Message>,
-    status: tonic::Status,
-) -> Result<(), axum::Error> {
+async fn finish_ws(ws: &mut SplitSink<WebSocket, Message>, status: tonic::Status) {
     let frame = tonic_status_to_ws_close_frame(status);
-    ws.send(Message::Close(Some(frame))).await?;
-    Ok(())
+    if let Err(err) = ws.send(Message::Close(Some(frame))).await {
+        tracing::error!("Error sending close frame: {}", err);
+    }
+    if let Err(err) = ws.close().await {
+        tracing::trace!("Close handshake completed: {}", err);
+    }
 }
 
 fn tonic_status_to_ws_close_frame(status: tonic::Status) -> CloseFrame {
@@ -92,22 +93,9 @@ async fn send_ws_msg<T: Send + prost::Message + Serialize + 'static>(
     Ok(())
 }
 
-async fn send_ws_error(ws: &mut SplitSink<WebSocket, Message>, error: axum::Error) {
-    tracing::error!("Error processing WS response: {}", error);
-    let frame = CloseFrame {
-        code: ERROR,
-        reason: error.to_string().into(),
-    };
-    if let Err(err) = ws.send(Message::Close(Some(frame))).await {
-        tracing::error!("Error sending close frame error message: {}", err);
-    }
-}
-
 /// Closes a WebSocket connection with the given tonic status
 pub async fn close_ws(mut ws: SplitSink<WebSocket, Message>, status: tonic::Status) {
-    if let Err(err) = send_ws_close_frame(&mut ws, status).await {
-        tracing::error!("Error sending close frame: {}", err);
-    }
+    finish_ws(&mut ws, status).await;
 }
 
 // *** Client functions ***
@@ -165,22 +153,27 @@ pub async fn process_ws_response<T: Send + prost::Message + Serialize + 'static>
     mut ws: SplitSink<WebSocket, Message>,
     protobuf: bool,
 ) {
-    if let Err(err) = handle_ws_response(response, &mut ws, protobuf).await {
-        send_ws_error(&mut ws, err).await;
-    }
+    let status = handle_ws_response(response, &mut ws, protobuf).await;
+    finish_ws(&mut ws, status).await;
 }
 
 async fn handle_ws_response<T: Send + prost::Message + Serialize + 'static>(
     response: Result<tonic::Response<T>, tonic::Status>,
     ws: &mut SplitSink<WebSocket, Message>,
     protobuf: bool,
-) -> Result<(), axum::Error> {
+) -> tonic::Status {
     match response {
         Ok(response) => {
             let msg = response.into_inner();
-            send_ws_msg(ws, msg, protobuf).await
+            match send_ws_msg(ws, msg, protobuf).await {
+                Ok(()) => tonic::Status::ok(""),
+                Err(err) => {
+                    tracing::error!("Error sending WS response: {}", err);
+                    tonic::Status::internal(err.to_string())
+                }
+            }
         }
-        Err(status) => send_ws_close_frame(ws, status).await,
+        Err(status) => status,
     }
 }
 
@@ -195,16 +188,15 @@ pub async fn process_ws_stream_response<S, T>(
     S: Stream<Item = Result<T, tonic::Status>> + Send + Unpin + 'static,
     T: prost::Message + Serialize + Send + 'static,
 {
-    if let Err(err) = handle_ws_stream_response(response, &mut ws, protobuf).await {
-        send_ws_error(&mut ws, err).await;
-    }
+    let status = handle_ws_stream_response(response, &mut ws, protobuf).await;
+    finish_ws(&mut ws, status).await;
 }
 
 async fn handle_ws_stream_response<S, T>(
     response: Result<tonic::Response<S>, tonic::Status>,
     ws: &mut SplitSink<WebSocket, Message>,
     protobuf: bool,
-) -> Result<(), axum::Error>
+) -> tonic::Status
 where
     S: Stream<Item = Result<T, tonic::Status>> + Send + Unpin + 'static,
     T: prost::Message + Serialize + Send + 'static,
@@ -214,14 +206,19 @@ where
             let mut stream = response.into_inner();
             while let Some(msg) = stream.next().await {
                 match msg {
-                    Ok(msg) => send_ws_msg(ws, msg, protobuf).await?,
-                    Err(status) => send_ws_close_frame(ws, status).await?,
+                    Ok(msg) => {
+                        if let Err(err) = send_ws_msg(ws, msg, protobuf).await {
+                            tracing::error!("Error sending WS response: {}", err);
+                            return tonic::Status::internal(err.to_string());
+                        }
+                    }
+                    Err(status) => return status,
                 }
             }
+            tonic::Status::ok("")
         }
-        Err(status) => send_ws_close_frame(ws, status).await?,
+        Err(status) => status,
     }
-    Ok(())
 }
 
 /// Converts a WebSocket message into a Tonic request

@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use axum::Router;
-use futures_util::{Stream, StreamExt as _, stream::select};
+use futures_util::{Stream, StreamExt as _};
 use rand::Rng as _;
 use tokio::time::sleep;
 use tonic::{Request, Response, Status, Streaming, service::Routes};
@@ -29,31 +29,34 @@ impl echo_server::Echo for Echo {
         &self,
         request: Request<Streaming<EchoRequest>>,
     ) -> Result<Response<Self::BidiEchoStream>, Status> {
-        let client_stream = request.into_inner();
+        let mut client_stream = request.into_inner();
 
-        // Echo back each client message
-        let echoes = client_stream.map(|result| match result {
-            Ok(req) => Ok(EchoReply {
-                message: format!("echo: {}", req.message),
-            }),
-            Err(status) => Err(status),
-        });
-
-        // Unsolicited server messages at random 5-10 second intervals
-        let greetings = async_stream::stream! {
+        // Echo back each client message, interleaved with periodic server greetings.
+        // Stops when the client disconnects.
+        let output = async_stream::stream! {
             loop {
                 let delay = rand::rng().random_range(5..=10);
-                sleep(Duration::from_secs(delay)).await;
-                yield Ok(EchoReply {
-                    message: "hello, this is the server!".to_string(),
-                });
+                tokio::select! {
+                    msg = client_stream.next() => match msg {
+                        Some(Ok(req)) => yield Ok(EchoReply {
+                            message: format!("echo: {}", req.message),
+                        }),
+                        Some(Err(status)) => {
+                            yield Err(status);
+                            break;
+                        }
+                        None => break,
+                    },
+                    _ = sleep(Duration::from_secs(delay)) => {
+                        yield Ok(EchoReply {
+                            message: "hello, this is the server!".to_string(),
+                        });
+                    }
+                }
             }
         };
 
-        // Merge both streams so they interleave
-        let merged = select(echoes, greetings);
-
-        Ok(Response::new(Box::pin(merged)))
+        Ok(Response::new(Box::pin(output)))
     }
 }
 
