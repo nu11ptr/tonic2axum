@@ -22,9 +22,9 @@ use crate::streaming::FakeGrpcFrameStreamingHelper;
 // *** Upgrade ***
 
 pub async fn upgrade_to_ws<C, Fut>(
+    ws_upgrade: WebSocketUpgrade,
     headers: http::HeaderMap,
     extensions: http::Extensions,
-    ws_upgrade: WebSocketUpgrade,
     protobuf: bool,
     callback: C,
 ) -> Response
