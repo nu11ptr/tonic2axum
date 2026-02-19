@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package echo.v1;
+
+import "google/api/annotations.proto";
+
+// The echo service definition.
+service Echo {
+    // Echoes back messages sent by the client, with occasional unsolicited greetings.
+    rpc BidiEcho (stream EchoRequest) returns (stream EchoReply) {
+        option (google.api.http) = {
+            post: "/echo"
+            body: "*"
+        };
+    }
+}
+
+// The request message containing the client's message.
+message EchoRequest {
+    // The message to echo
+    string message = 1;
+}
+
+// The response message containing the echoed or unsolicited message.
+message EchoReply {
+    // The echoed or server-generated message
+    string message = 1;
+}

@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "examples/simple",
     "examples/streaming",
+    "examples/ws-streaming",
     "tonic2axum",
     "tonic2axum-build",
 ]
