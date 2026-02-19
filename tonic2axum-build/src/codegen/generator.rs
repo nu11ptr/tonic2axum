@@ -79,7 +79,8 @@ impl Generator {
         let mut handler_funcs = Vec::with_capacity(service.methods.len());
         let mut routes = Vec::with_capacity(service.methods.len());
         let mut ws_handler_funcs = Vec::new();
-        let mut ws_routes = Vec::new();
+        let mut ws_proto_routes = Vec::new();
+        let mut ws_json_routes = Vec::new();
         let mut has_client_streaming = false;
 
         for method in &service.methods {
@@ -95,10 +96,11 @@ impl Generator {
                     && (method.client_streaming || method.server_streaming)
                 {
                     if let Some(path) = self.options.get_path(&service.name, &method.proto_name) {
-                        let (ws_func, ws_route) =
+                        let (ws_func, ws_proto_route, ws_json_route) =
                             self.generate_ws_func(method, &service_type, &path);
                         ws_handler_funcs.push(ws_func);
-                        ws_routes.push(ws_route);
+                        ws_proto_routes.push(ws_proto_route);
+                        ws_json_routes.push(ws_json_route);
                     }
                 }
 
@@ -128,7 +130,7 @@ impl Generator {
         } else {
             None
         };
-        let has_ws = !ws_routes.is_empty();
+        let has_ws = !ws_proto_routes.is_empty();
         let use_ws = if has_ws {
             Some(quote! {
                 use axum::extract::WebSocketUpgrade;
@@ -162,7 +164,13 @@ impl Generator {
                 use axum::Router;
             }
         };
-        let router_func = self.generate_router(&service.name, &service_type, routes, ws_routes);
+        let router_func = self.generate_router(
+            &service.name,
+            &service_type,
+            routes,
+            ws_proto_routes,
+            ws_json_routes,
+        );
 
         let module = quote! {
             /// Generated axum handlers and router.
@@ -464,7 +472,7 @@ impl Generator {
         method: &prost_build::Method,
         service_type: &ServiceType,
         path: &str,
-    ) -> (TokenStream, TokenStream) {
+    ) -> (TokenStream, TokenStream, TokenStream) {
         let (_, headers, extensions, state) = self.value_names.names();
         let protobuf = format_ident!("protobuf{}", self.config.value_suffix);
         let ws_upgrade = format_ident!("ws_upgrade{}", self.config.value_suffix);
@@ -472,6 +480,13 @@ impl Generator {
         let func_name = ident(&method.name);
         let ws_func_name = format_ident!("{}_ws", method.name);
         let state_type = &service_type.state_type_name;
+
+        let func_comments = method.comments.leading.join("\n");
+        let func_comments = if func_comments.is_empty() {
+            None
+        } else {
+            Some(quote! { #[doc = #func_comments] })
+        };
 
         let callback_body = if method.client_streaming && method.server_streaming {
             // Bidi streaming
@@ -503,6 +518,7 @@ impl Generator {
         };
 
         let func = quote! {
+            #func_comments
             pub async fn #ws_func_name(
                 State((#state, #protobuf)): State<(#state_type, bool)>,
                 #ws_upgrade: WebSocketUpgrade,
@@ -525,12 +541,10 @@ impl Generator {
         let ws_path_proto = format!("{}/ws/proto", path);
         let ws_path_json = format!("{}/ws/json", path);
 
-        let routes = quote! {
-            .route(#ws_path_proto, any(#ws_func_name).with_state((state.clone(), true)))
-            .route(#ws_path_json, any(#ws_func_name).with_state((state.clone(), false)))
-        };
+        let ws_proto_route = quote! { .route(#ws_path_proto, any(#ws_func_name)) };
+        let ws_json_route = quote! { .route(#ws_path_json, any(#ws_func_name)) };
 
-        (func, routes)
+        (func, ws_proto_route, ws_json_route)
     }
 
     fn generate_router(
@@ -538,7 +552,8 @@ impl Generator {
         service_name: &str,
         service_type: &ServiceType,
         routes: Vec<TokenStream>,
-        ws_routes: Vec<TokenStream>,
+        ws_proto_routes: Vec<TokenStream>,
+        ws_json_routes: Vec<TokenStream>,
     ) -> TokenStream {
         let router_func_name = &self.config.router_func_name;
         let state_type_name = &service_type.state_type_name;
@@ -551,7 +566,7 @@ impl Generator {
             ident("Router")
         };
 
-        if ws_routes.is_empty() {
+        if ws_proto_routes.is_empty() {
             quote! {
                 #[doc = #comment]
                 pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
@@ -564,10 +579,17 @@ impl Generator {
             quote! {
                 #[doc = #comment]
                 pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
+                    let ws_proto = Router::new()
+                        #(#ws_proto_routes)*
+                        .with_state((state.clone(), true));
+                    let ws_json = Router::new()
+                        #(#ws_json_routes)*
+                        .with_state((state.clone(), false));
                     #router_type::new()
                         #(#routes)*
-                        .with_state(state.clone())
-                        #(#ws_routes)*
+                        .with_state(state)
+                        .merge(ws_proto)
+                        .merge(ws_json)
                 }
             }
         }

@@ -597,6 +597,7 @@ pub mod streaming_test_axum {
         let req__ = tonic2axum::make_request(headers__, extensions__, req__.0);
         tonic2axum::make_response(state__.unary_call(req__).await)
     }
+    /// Server streaming RPC
     pub async fn server_stream_ws(
         State((state__, protobuf__)): State<(crate::StreamingTest, bool)>,
         ws_upgrade__: WebSocketUpgrade,
@@ -633,6 +634,7 @@ pub mod streaming_test_axum {
             )
             .await
     }
+    /// Client streaming RPC
     pub async fn client_stream_ws(
         State((state__, protobuf__)): State<(crate::StreamingTest, bool)>,
         ws_upgrade__: WebSocketUpgrade,
@@ -656,6 +658,7 @@ pub mod streaming_test_axum {
             )
             .await
     }
+    /// Bidirectional streaming RPC
     pub async fn bidi_stream_ws(
         State((state__, protobuf__)): State<(crate::StreamingTest, bool)>,
         ws_upgrade__: WebSocketUpgrade,
@@ -682,35 +685,23 @@ pub mod streaming_test_axum {
     }
     /// Axum router for the StreamingTest service
     pub fn make_router(state: crate::StreamingTest) -> Router {
+        let ws_proto = Router::new()
+            .route("/stream/server/ws/proto", any(server_stream_ws))
+            .route("/stream/client/ws/proto", any(client_stream_ws))
+            .route("/stream/bidi/ws/proto", any(bidi_stream_ws))
+            .with_state((state.clone(), true));
+        let ws_json = Router::new()
+            .route("/stream/server/ws/json", any(server_stream_ws))
+            .route("/stream/client/ws/json", any(client_stream_ws))
+            .route("/stream/bidi/ws/json", any(bidi_stream_ws))
+            .with_state((state.clone(), false));
         Router::new()
             .route("/stream/server", post(server_stream))
             .route("/stream/client", post(client_stream))
             .route("/stream/bidi", post(bidi_stream))
             .route("/stream/unary", post(unary_call))
-            .with_state(state.clone())
-            .route(
-                "/stream/server/ws/proto",
-                any(server_stream_ws).with_state((state.clone(), true)),
-            )
-            .route(
-                "/stream/server/ws/json",
-                any(server_stream_ws).with_state((state.clone(), false)),
-            )
-            .route(
-                "/stream/client/ws/proto",
-                any(client_stream_ws).with_state((state.clone(), true)),
-            )
-            .route(
-                "/stream/client/ws/json",
-                any(client_stream_ws).with_state((state.clone(), false)),
-            )
-            .route(
-                "/stream/bidi/ws/proto",
-                any(bidi_stream_ws).with_state((state.clone(), true)),
-            )
-            .route(
-                "/stream/bidi/ws/json",
-                any(bidi_stream_ws).with_state((state.clone(), false)),
-            )
+            .with_state(state)
+            .merge(ws_proto)
+            .merge(ws_json)
     }
 }
