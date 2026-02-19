@@ -16,7 +16,7 @@ readme = "README.md"
 edition = "2024"
 
 [features]
-default = ["http-streaming", "ws-streaming"]
+default = []
 
 _streaming = ["dep:futures-core", "dep:bytes", "dep:http-body", "tonic/server"]
 http-streaming = ["dep:axum-extra", "_streaming"]
