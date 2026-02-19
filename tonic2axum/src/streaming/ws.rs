@@ -1,6 +1,12 @@
-use axum::extract::ws::{
-    CloseFrame, Message, WebSocket,
-    close_code::{AGAIN, AWAY, ERROR, INVALID, NORMAL, POLICY, SIZE, UNSUPPORTED},
+use axum::{
+    extract::{
+        WebSocketUpgrade,
+        ws::{
+            CloseFrame, Message, WebSocket,
+            close_code::{AGAIN, AWAY, ERROR, INVALID, NORMAL, POLICY, SIZE, UNSUPPORTED},
+        },
+    },
+    response::Response,
 };
 use bytes::BytesMut;
 use futures_core::Stream;
@@ -12,6 +18,33 @@ use serde::{Serialize, de::DeserializeOwned};
 use tonic::metadata::MetadataMap;
 
 use crate::streaming::FakeGrpcFrameStreamingHelper;
+
+// *** Upgrade ***
+
+pub async fn upgrade_to_ws<C, Fut>(
+    headers: http::HeaderMap,
+    extensions: http::Extensions,
+    ws_upgrade: WebSocketUpgrade,
+    protobuf: bool,
+    callback: C,
+) -> Response
+where
+    C: FnOnce(
+            http::HeaderMap,
+            http::Extensions,
+            SplitStream<WebSocket>,
+            SplitSink<WebSocket, Message>,
+            bool,
+        ) -> Fut
+        + Send
+        + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    ws_upgrade.on_upgrade(move |socket| async move {
+        let (sink, stream) = socket.split();
+        callback(headers, extensions, stream, sink, protobuf).await;
+    })
+}
 
 // *** Shared functions ***
 

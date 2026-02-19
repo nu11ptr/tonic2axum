@@ -9,16 +9,13 @@ use tonic::metadata::MetadataMap;
 mod streaming;
 
 #[cfg(feature = "http-streaming")]
-pub use streaming::make_stream_response;
-
-#[cfg(feature = "http-streaming")]
-pub use streaming::make_stream_request;
+pub use streaming::{make_stream_request, make_stream_response};
 
 #[cfg(feature = "ws-streaming")]
-pub use streaming::{make_ws_stream_request, process_ws_response};
-
-#[cfg(feature = "ws-streaming")]
-pub use streaming::{make_ws_request, process_ws_stream_response};
+pub use streaming::{
+    make_ws_request, make_ws_stream_request, process_ws_response, process_ws_stream_response,
+    upgrade_to_ws,
+};
 
 /// Converts the parts of an HTTP request into a Tonic request
 pub fn make_request<T>(
