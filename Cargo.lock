@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "tonic2axum"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "async-stream",
  "axum",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "tonic2axum-build"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "flexstr",
  "heck",
