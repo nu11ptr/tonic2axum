@@ -45,6 +45,30 @@ mod test_compile {
     }
 
     #[test]
+    fn test_compile_with_openapi_and_web_sockets() {
+        let dir = tempdir().unwrap();
+
+        let mut config = ProstConfig::new();
+        config
+            .out_dir(dir.path())
+            .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+        Builder::new()
+            .prost_config(config)
+            .file_descriptor_set_path(dir.path().join("fds.bin"))
+            .custom_state_type("StreamingTest", "crate::StreamingTest")
+            .unwrap()
+            .generate_openapi(true)
+            .generate_web_sockets(true)
+            .compile(&["tests/proto/test_ws/v1/test_ws.proto"], &["tests/proto"])
+            .unwrap();
+
+        let actual = std::fs::read_to_string(dir.path().join("test_ws.v1.rs")).unwrap();
+        let expected =
+            std::fs::read_to_string("tests/testdata/openapi_ws/test_ws.v1.rs").unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
     fn test_compile_with_openapi_security() {
         let dir = tempdir().unwrap();
 

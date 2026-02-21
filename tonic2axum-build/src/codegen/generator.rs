@@ -562,6 +562,19 @@ impl Generator {
                 }
             }
         } else {
+            let merge_ws = if self.config.generate_openapi {
+                // OpenApiRouter::merge requires OpenApiRouter, so convert from Router
+                quote! {
+                    .merge(OpenApiRouter::from(ws_proto))
+                    .merge(OpenApiRouter::from(ws_json))
+                }
+            } else {
+                quote! {
+                    .merge(ws_proto)
+                    .merge(ws_json)
+                }
+            };
+
             quote! {
                 #[doc = #comment]
                 pub fn #router_func_name #generics(state: #state_type_name) -> #router_type {
@@ -574,8 +587,7 @@ impl Generator {
                     #router_type::new()
                         #(#routes)*
                         .with_state(state)
-                        .merge(ws_proto)
-                        .merge(ws_json)
+                        #merge_ws
                 }
             }
         }
