@@ -140,29 +140,13 @@ impl Generator {
             None
         };
         let use_trait = service_type.use_trait.as_ref();
-        let use_routing = if self.config.generate_openapi {
-            if has_ws {
-                quote! {
-                    use axum::routing::any;
-                    use utoipa_axum::routes;
-                    use utoipa_axum::router::OpenApiRouter;
-                }
-            } else {
-                quote! {
-                    use utoipa_axum::routes;
-                    use utoipa_axum::router::OpenApiRouter;
-                }
-            }
-        } else if has_ws {
-            quote! {
-                use axum::routing::{any, get, post, put, delete, patch};
-                use axum::Router;
-            }
+        let use_openapi = if self.config.generate_openapi {
+            Some(quote! {
+                use utoipa_axum::routes;
+                use utoipa_axum::router::OpenApiRouter;
+            })
         } else {
-            quote! {
-                use axum::routing::{get, post, put, delete, patch};
-                use axum::Router;
-            }
+            None
         };
         let router_func = self.generate_router(
             &service.name,
@@ -182,9 +166,11 @@ impl Generator {
                 use axum::Json;
                 use axum::body::Body;
                 use axum::extract::{Path, Query, State};
+                use axum::routing::{any, get, post, put, delete, patch};
+                use axum::Router;
                 #use_json_lines
                 #use_ws
-                #use_routing
+                #use_openapi
 
                 #use_trait
 

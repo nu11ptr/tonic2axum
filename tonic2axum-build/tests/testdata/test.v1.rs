@@ -630,7 +630,7 @@ pub mod test1_axum {
     use axum::Json;
     use axum::body::Body;
     use axum::extract::{Path, Query, State};
-    use axum::routing::{get, post, put, delete, patch};
+    use axum::routing::{any, get, post, put, delete, patch};
     use axum::Router;
     /// Sends a test
     pub async fn do_test(
@@ -663,7 +663,7 @@ pub mod test2_axum {
     use axum::Json;
     use axum::body::Body;
     use axum::extract::{Path, Query, State};
-    use axum::routing::{get, post, put, delete, patch};
+    use axum::routing::{any, get, post, put, delete, patch};
     use axum::Router;
     pub async fn do_test(
         State(state__): State<Arc<dyn super::test2_server::Test2>>,

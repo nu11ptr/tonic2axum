@@ -551,11 +551,11 @@ pub mod streaming_test_axum {
     use axum::Json;
     use axum::body::Body;
     use axum::extract::{Path, Query, State};
+    use axum::routing::{any, get, post, put, delete, patch};
+    use axum::Router;
     use axum_extra::json_lines::JsonLines;
     use axum::extract::WebSocketUpgrade;
     use axum::response::Response;
-    use axum::routing::{any, get, post, put, delete, patch};
-    use axum::Router;
     use super::streaming_test_server::StreamingTest as _;
     /// Server streaming RPC
     pub async fn server_stream(

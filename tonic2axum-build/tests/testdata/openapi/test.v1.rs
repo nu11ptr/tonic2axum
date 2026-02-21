@@ -634,6 +634,8 @@ pub mod test1_axum {
     use axum::Json;
     use axum::body::Body;
     use axum::extract::{Path, Query, State};
+    use axum::routing::{any, get, post, put, delete, patch};
+    use axum::Router;
     use utoipa_axum::routes;
     use utoipa_axum::router::OpenApiRouter;
     /// Sends a test
@@ -677,6 +679,8 @@ pub mod test2_axum {
     use axum::Json;
     use axum::body::Body;
     use axum::extract::{Path, Query, State};
+    use axum::routing::{any, get, post, put, delete, patch};
+    use axum::Router;
     use utoipa_axum::routes;
     use utoipa_axum::router::OpenApiRouter;
     #[utoipa::path(
