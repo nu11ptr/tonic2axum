@@ -98,6 +98,11 @@ default-features = false
 version = "0.3"
 default-features = false
 
+[dev-dependencies.serde]
+version = "1"
+default-features = false
+features = ["derive"]
+
 [dev-dependencies.serde_json]
 version = "1"
 default-features = false
