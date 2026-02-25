@@ -88,7 +88,7 @@ impl ServiceType {
                         <#state_type_name: super::#handler_bound>
                     },
                     router_generics: quote! {
-                        <#state_type_name: #handler_bound + Clone>
+                        <#state_type_name: super::#handler_bound + Clone>
                     },
                 };
 

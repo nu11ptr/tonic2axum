@@ -466,6 +466,8 @@ impl Generator {
         let func_name = ident(&method.name);
         let ws_func_name = format_ident!("{}_ws", method.name);
         let state_type = &service_type.state_type_name;
+        let handler_generics = service_type.handler_generics();
+        let turbofish = service_type.handler_route_turbofish();
 
         let func_comments = method.comments.leading.join("\n");
         let func_comments = if func_comments.is_empty() {
@@ -505,7 +507,7 @@ impl Generator {
 
         let func = quote! {
             #func_comments
-            pub async fn #ws_func_name(
+            pub async fn #ws_func_name #handler_generics(
                 State((#state, #protobuf)): State<(#state_type, bool)>,
                 #ws_upgrade: WebSocketUpgrade,
                 #headers: http::HeaderMap,
@@ -527,8 +529,8 @@ impl Generator {
         let ws_path_proto = format!("{}/ws/proto", path);
         let ws_path_json = format!("{}/ws/json", path);
 
-        let ws_proto_route = quote! { .route(#ws_path_proto, any(#ws_func_name)) };
-        let ws_json_route = quote! { .route(#ws_path_json, any(#ws_func_name)) };
+        let ws_proto_route = quote! { .route(#ws_path_proto, any(#ws_func_name #turbofish)) };
+        let ws_json_route = quote! { .route(#ws_path_json, any(#ws_func_name #turbofish)) };
 
         (func, ws_proto_route, ws_json_route)
     }
