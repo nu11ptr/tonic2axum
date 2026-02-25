@@ -185,7 +185,7 @@ pub async fn process_ws_stream_response<S, T>(
     mut ws: SplitSink<WebSocket, Message>,
     protobuf: bool,
 ) where
-    S: Stream<Item = Result<T, tonic::Status>> + Send + Unpin + 'static,
+    S: Stream<Item = Result<T, tonic::Status>> + Send + 'static,
     T: prost::Message + Serialize + Send + 'static,
 {
     let status = handle_ws_stream_response(response, &mut ws, protobuf).await;
@@ -198,12 +198,13 @@ async fn handle_ws_stream_response<S, T>(
     protobuf: bool,
 ) -> tonic::Status
 where
-    S: Stream<Item = Result<T, tonic::Status>> + Send + Unpin + 'static,
+    S: Stream<Item = Result<T, tonic::Status>> + Send + 'static,
     T: prost::Message + Serialize + Send + 'static,
 {
     match response {
         Ok(response) => {
-            let mut stream = response.into_inner();
+            let stream = response.into_inner();
+            futures_util::pin_mut!(stream);
             while let Some(msg) = stream.next().await {
                 match msg {
                     Ok(msg) => {
