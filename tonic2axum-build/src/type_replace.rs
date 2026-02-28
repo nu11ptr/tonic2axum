@@ -42,6 +42,71 @@ impl<'a> TypeReplacer<'a> {
     }
 }
 
+impl<'a> TypeReplacer<'a> {
+    /// Check if a type (or any type nested in its generic arguments) matches a replacement.
+    fn type_contains_replacement(&self, ty: &syn::Type) -> bool {
+        if let syn::Type::Path(type_path) = ty {
+            if self
+                .replacements
+                .iter()
+                .any(|(from, _)| Self::path_matches(&type_path.path, from))
+            {
+                return true;
+            }
+            // Recurse into generic arguments (Vec<T>, Option<T>, HashMap<K, V>, etc.)
+            for segment in &type_path.path.segments {
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    for arg in &args.args {
+                        if let syn::GenericArgument::Type(inner_ty) = arg {
+                            if self.type_contains_replacement(inner_ty) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// In a `#[prost(...)]` attribute, replace `string` with `message`.
+    ///
+    /// Handles both bare idents (`#[prost(string, ...)]`) and string literals inside
+    /// map attributes (`#[prost(map = "string, string", ...)]`).
+    fn replace_prost_string_with_message(attr: &mut syn::Attribute) {
+        if let syn::Meta::List(meta_list) = &mut attr.meta {
+            meta_list.tokens = meta_list
+                .tokens
+                .clone()
+                .into_iter()
+                .map(|tt| match &tt {
+                    proc_macro2::TokenTree::Ident(ident) if *ident == "string" => {
+                        proc_macro2::TokenTree::Ident(proc_macro2::Ident::new(
+                            "message",
+                            ident.span(),
+                        ))
+                    }
+                    proc_macro2::TokenTree::Literal(lit) => {
+                        let repr = lit.to_string();
+                        if let Some(inner) =
+                            repr.strip_prefix('"').and_then(|s| s.strip_suffix('"'))
+                        {
+                            if inner.contains("string") {
+                                let new_inner = inner.replace("string", "message");
+                                let mut new_lit = proc_macro2::Literal::string(&new_inner);
+                                new_lit.set_span(lit.span());
+                                return proc_macro2::TokenTree::Literal(new_lit);
+                            }
+                        }
+                        tt
+                    }
+                    _ => tt,
+                })
+                .collect();
+        }
+    }
+}
+
 impl VisitMut for TypeReplacer<'_> {
     fn visit_type_mut(&mut self, ty: &mut syn::Type) {
         // Recurse into children first (depth-first)
@@ -56,6 +121,21 @@ impl VisitMut for TypeReplacer<'_> {
                 }
             }
         }
+    }
+
+    fn visit_field_mut(&mut self, field: &mut syn::Field) {
+        // Before the default walk replaces types, check if this field's type will be replaced.
+        // If so, update `#[prost(string, ...)]` → `#[prost(message, ...)]`.
+        if self.type_contains_replacement(&field.ty) {
+            for attr in &mut field.attrs {
+                if attr.path().is_ident("prost") {
+                    Self::replace_prost_string_with_message(attr);
+                }
+            }
+        }
+
+        // Default walk: recurses into the field's type and replaces it
+        syn::visit_mut::visit_field_mut(self, field);
     }
 }
 

@@ -17,11 +17,17 @@ mod test_compile {
             .file_descriptor_set_path(dir.path().join("fds.bin"))
             .replace_type("alloc::string::String", "flexstr::SharedStr")
             .unwrap()
-            .compile(&["tests/proto/test/v1/test.proto"], &["tests/proto"])
+            .compile(
+                &["tests/proto/test_replace/v1/test_replace.proto"],
+                &["tests/proto"],
+            )
             .unwrap();
 
-        let actual = std::fs::read_to_string(dir.path().join("test.v1.rs")).unwrap();
-        let expected = std::fs::read_to_string("tests/testdata/replace_type/test.v1.rs").unwrap();
+        let actual = std::fs::read_to_string(dir.path().join("test_replace.v1.rs")).unwrap();
+        // Bootstrap: uncomment to regenerate expected output
+        // std::fs::write("tests/testdata/replace_type/test_replace.v1.rs", &actual).unwrap();
+        let expected =
+            std::fs::read_to_string("tests/testdata/replace_type/test_replace.v1.rs").unwrap();
         assert_eq!(actual, expected);
     }
 
