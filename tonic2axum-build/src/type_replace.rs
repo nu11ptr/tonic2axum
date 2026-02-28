@@ -124,12 +124,16 @@ impl<'a> TypeReplacer<'a> {
     /// - `bytes = "..."` key-value → `bytes` becomes `message`, `=` and literal are removed
     /// - String literals inside map attributes (`map = "string, bytes"`) → replace both
     ///   `string` and `bytes` with `message` inside the literal
+    ///
+    /// When the encoding is replaced to `message`, adds `required` unless `optional` or
+    /// `repeated` is already present (prost treats bare `message` as optional by default).
     fn replace_prost_encoding_with_message(attr: &mut syn::Attribute) {
         if let syn::Meta::List(meta_list) = &mut attr.meta {
             let tokens: Vec<proc_macro2::TokenTree> =
                 meta_list.tokens.clone().into_iter().collect();
             let mut result: Vec<proc_macro2::TokenTree> = Vec::with_capacity(tokens.len());
             let mut i = 0;
+            let mut replaced_encoding = false;
 
             while i < tokens.len() {
                 match &tokens[i] {
@@ -139,6 +143,7 @@ impl<'a> TypeReplacer<'a> {
                             "message",
                             ident.span(),
                         )));
+                        replaced_encoding = true;
                         i += 1;
                     }
                     // `bytes = "..."` → `message` (skip `=` and literal)
@@ -152,6 +157,7 @@ impl<'a> TypeReplacer<'a> {
                                         result.push(proc_macro2::TokenTree::Ident(
                                             proc_macro2::Ident::new("message", ident.span()),
                                         ));
+                                        replaced_encoding = true;
                                         i += 3; // skip bytes, =, literal
                                         continue;
                                     }
@@ -163,6 +169,7 @@ impl<'a> TypeReplacer<'a> {
                             "message",
                             ident.span(),
                         )));
+                        replaced_encoding = true;
                         i += 1;
                     }
                     // String literals (inside map attributes): replace `string`/`bytes` → `message`
@@ -189,6 +196,29 @@ impl<'a> TypeReplacer<'a> {
                         result.push(tokens[i].clone());
                         i += 1;
                     }
+                }
+            }
+
+            // When encoding was replaced to `message`, prost treats it as optional by default.
+            // Add `required` unless `optional` or `repeated` is already present.
+            if replaced_encoding {
+                let has_optional_or_repeated = result.iter().any(|tt| {
+                    matches!(tt, proc_macro2::TokenTree::Ident(ident)
+                        if *ident == "optional" || *ident == "repeated")
+                });
+                if !has_optional_or_repeated && result.len() >= 2 {
+                    let span = result[0].span();
+                    result.insert(
+                        2,
+                        proc_macro2::TokenTree::Ident(proc_macro2::Ident::new("required", span)),
+                    );
+                    result.insert(
+                        3,
+                        proc_macro2::TokenTree::Punct(proc_macro2::Punct::new(
+                            ',',
+                            proc_macro2::Spacing::Alone,
+                        )),
+                    );
                 }
             }
 

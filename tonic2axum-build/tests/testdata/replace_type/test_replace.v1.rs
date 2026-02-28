@@ -4,7 +4,7 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplaceRequest {
     /// plain string
-    #[prost(message, tag = "1")]
+    #[prost(message, required, tag = "1")]
     pub name: flexstr::SharedStr,
     /// repeated string (Vec)
     #[prost(message, repeated, tag = "2")]
@@ -19,13 +19,13 @@ pub struct ReplaceRequest {
     #[prost(message, optional, tag = "5")]
     pub inner: ::core::option::Option<Inner>,
     /// plain bytes
-    #[prost(message, tag = "6")]
+    #[prost(message, required, tag = "6")]
     pub data: bytes::Bytes,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Inner {
-    #[prost(message, tag = "1")]
+    #[prost(message, required, tag = "1")]
     pub value: flexstr::SharedStr,
     #[prost(message, repeated, tag = "2")]
     pub items: ::prost::alloc::vec::Vec<flexstr::SharedStr>,
@@ -33,7 +33,7 @@ pub struct Inner {
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReplaceReply {
-    #[prost(message, tag = "1")]
+    #[prost(message, required, tag = "1")]
     pub result: flexstr::SharedStr,
 }
 /// Generated client implementations.
