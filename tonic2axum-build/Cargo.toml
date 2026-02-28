@@ -19,6 +19,7 @@ edition = "2024"
 default = ["format"]
 format = ["prost-build/format"]
 cleanup-markdown = ["prost-build/cleanup-markdown"]
+replace_types = ["dep:prettyplease", "syn/visit-mut"]
 
 # Dependencies
 
@@ -51,6 +52,11 @@ default-features = false
 version = "2"
 default-features = false
 features = ["extra-traits"]
+
+[dependencies.prettyplease]
+version = "0.2"
+default-features = false
+optional = true
 
 [dependencies.tonic-prost-build]
 version = "0.14"

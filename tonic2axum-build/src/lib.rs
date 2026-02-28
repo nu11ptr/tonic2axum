@@ -2,6 +2,8 @@ mod builder;
 mod codegen;
 mod http;
 mod message;
+#[cfg(feature = "replace_types")]
+mod type_replace;
 
 pub use builder::{Builder, OpenApiSecurity};
 pub use prost_build::Config as ProstConfig;

@@ -204,7 +204,25 @@ impl ExistingMessages {
 
     pub fn parse_source(&mut self, src: &str) -> Result<(), Box<dyn Error>> {
         let file: syn::File = syn::parse_str(src)?;
+        self.extract_messages(file);
+        Ok(())
+    }
 
+    #[cfg(feature = "replace_types")]
+    pub fn parse_source_and_replace(
+        &mut self,
+        buf: &mut String,
+        replacements: &[(syn::Path, syn::Type)],
+    ) -> Result<(), Box<dyn Error>> {
+        let mut file: syn::File = syn::parse_str(buf)?;
+        crate::type_replace::TypeReplacer::new(replacements).apply(&mut file);
+        buf.clear();
+        buf.push_str(&prettyplease::unparse(&file));
+        self.extract_messages(file);
+        Ok(())
+    }
+
+    fn extract_messages(&mut self, file: syn::File) {
         for item in file.items {
             if let syn::Item::Struct(struct_) = item {
                 let name: LocalStr = struct_.ident.to_string().into();
@@ -226,8 +244,6 @@ impl ExistingMessages {
 
         // Add a special message for the empty request
         self.add_message(Message::new("()".into(), DocComments::default()));
-
-        Ok(())
     }
 
     pub fn get_message(&self, name: &str) -> Option<&Message> {

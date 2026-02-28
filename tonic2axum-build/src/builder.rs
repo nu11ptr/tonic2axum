@@ -45,6 +45,10 @@ pub(crate) struct GeneratorConfig {
     pub router_func_name: syn::Ident,
     pub service_mod_name_suffix: &'static str,
     pub struct_doc_comments: HashMap<LocalStr, DocComments>,
+
+    // Type replacements (from_path, to_type)
+    #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
+    pub type_replacements: Vec<(syn::Path, syn::Type)>,
 }
 
 impl Default for GeneratorConfig {
@@ -62,6 +66,7 @@ impl Default for GeneratorConfig {
             router_func_name: syn::Ident::new("make_router", Span::call_site()),
             service_mod_name_suffix: "_axum",
             struct_doc_comments: HashMap::new(),
+            type_replacements: Vec::new(),
         }
     }
 }
@@ -237,6 +242,32 @@ impl Builder {
     pub fn prost_config(mut self, config: ProstConfig) -> Self {
         self.prost_config = Some(config);
         self
+    }
+
+    /// Replace a type in the generated code. The `from` type path is matched as a suffix
+    /// against fully-qualified paths in the generated code (e.g., `alloc::string::String`
+    /// matches `::prost::alloc::string::String`). Use a leading `::` for exact matches only.
+    ///
+    /// Replacements apply to all generated message fields, including those nested inside
+    /// generic types like `Vec`, `Option`, `HashMap`, etc.
+    #[cfg(feature = "replace_types")]
+    pub fn replace_type(
+        mut self,
+        from: impl AsRef<str>,
+        to: impl AsRef<str>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let from = from.as_ref();
+        let to = to.as_ref();
+        if from.is_empty() || to.is_empty() {
+            return Err("Both from and to types must be provided".into());
+        }
+
+        let from_type: syn::TypePath = syn::parse_str(from)?;
+        let to_type: syn::Type = syn::parse_str(to)?;
+        self.config
+            .type_replacements
+            .push((from_type.path, to_type));
+        Ok(self)
     }
 
     /// Set the tonic builder to customize the tonic build process.

@@ -1301,6 +1301,7 @@ version = "0.6.3"
 dependencies = [
  "flexstr",
  "heck",
+ "prettyplease",
  "proc-macro2",
  "prost-build",
  "prost-reflect",
