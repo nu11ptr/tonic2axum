@@ -21,8 +21,7 @@ mod test_compile {
             .unwrap();
 
         let actual = std::fs::read_to_string(dir.path().join("test.v1.rs")).unwrap();
-        let expected =
-            std::fs::read_to_string("tests/testdata/replace_type/test.v1.rs").unwrap();
+        let expected = std::fs::read_to_string("tests/testdata/replace_type/test.v1.rs").unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -86,8 +85,7 @@ mod test_compile {
             .unwrap();
 
         let actual = std::fs::read_to_string(dir.path().join("test_ws.v1.rs")).unwrap();
-        let expected =
-            std::fs::read_to_string("tests/testdata/openapi_ws/test_ws.v1.rs").unwrap();
+        let expected = std::fs::read_to_string("tests/testdata/openapi_ws/test_ws.v1.rs").unwrap();
         assert_eq!(actual, expected);
     }
 
@@ -109,8 +107,7 @@ mod test_compile {
             .unwrap();
 
         let actual = std::fs::read_to_string(dir.path().join("test_ws.v1.rs")).unwrap();
-        let expected =
-            std::fs::read_to_string("tests/testdata/ws_generic/test_ws.v1.rs").unwrap();
+        let expected = std::fs::read_to_string("tests/testdata/ws_generic/test_ws.v1.rs").unwrap();
         assert_eq!(actual, expected);
     }
 

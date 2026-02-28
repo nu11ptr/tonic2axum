@@ -30,10 +30,7 @@ impl<'a> TypeReplacer<'a> {
                 return false;
             }
             let offset = target.segments.len() - pattern.segments.len();
-            Self::segments_match(
-                target.segments.iter().skip(offset),
-                pattern.segments.iter(),
-            )
+            Self::segments_match(target.segments.iter().skip(offset), pattern.segments.iter())
         }
     }
 
@@ -123,7 +120,10 @@ mod tests {
             "alloc::string::String",
             "flexstr::SharedStr",
         );
-        assert_eq!(result, ":: core :: option :: Option < flexstr :: SharedStr >");
+        assert_eq!(
+            result,
+            ":: core :: option :: Option < flexstr :: SharedStr >"
+        );
     }
 
     #[test]
