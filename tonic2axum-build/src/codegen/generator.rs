@@ -66,10 +66,15 @@ impl Generator {
     ) -> Result<(), Box<dyn Error>> {
         // Parse the existing messages from the buffer, applying type replacements if configured
         #[cfg(feature = "replace_types")]
-        if !self.replacements_applied && !self.config.type_replacements.is_empty() {
+        if !self.replacements_applied
+            && (self.config.string_replacement.is_some() || self.config.bytes_replacement.is_some())
+        {
             self.replacements_applied = true;
-            self.existing_messages
-                .parse_source_and_replace(buf, &self.config.type_replacements)?;
+            self.existing_messages.parse_source_and_replace(
+                buf,
+                self.config.string_replacement.as_ref(),
+                self.config.bytes_replacement.as_ref(),
+            )?;
         } else {
             self.existing_messages.parse_source(buf)?;
         }

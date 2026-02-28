@@ -25,6 +25,8 @@ message ReplaceRequest {
     map<string, string> metadata = 4;
     // nested message containing strings
     Inner inner = 5;
+    // plain bytes
+    bytes data = 6;
 }
 
 message Inner {

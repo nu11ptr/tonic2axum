@@ -46,9 +46,11 @@ pub(crate) struct GeneratorConfig {
     pub service_mod_name_suffix: &'static str,
     pub struct_doc_comments: HashMap<LocalStr, DocComments>,
 
-    // Type replacements (from_path, to_type)
+    // Type replacements
     #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
-    pub type_replacements: Vec<(syn::Path, syn::Type)>,
+    pub string_replacement: Option<syn::Type>,
+    #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
+    pub bytes_replacement: Option<syn::Type>,
 }
 
 impl Default for GeneratorConfig {
@@ -66,7 +68,8 @@ impl Default for GeneratorConfig {
             router_func_name: syn::Ident::new("make_router", Span::call_site()),
             service_mod_name_suffix: "_axum",
             struct_doc_comments: HashMap::new(),
-            type_replacements: Vec::new(),
+            string_replacement: None,
+            bytes_replacement: None,
         }
     }
 }
@@ -244,29 +247,33 @@ impl Builder {
         self
     }
 
-    /// Replace a type in the generated code. The `from` type path is matched as a suffix
-    /// against fully-qualified paths in the generated code (e.g., `alloc::string::String`
-    /// matches `::prost::alloc::string::String`). Use a leading `::` for exact matches only.
+    /// Replace all `String` types in prost-generated code with the given type.
     ///
-    /// Replacements apply to all generated message fields, including those nested inside
-    /// generic types like `Vec`, `Option`, `HashMap`, etc.
+    /// This replaces `::prost::alloc::string::String` (and suffix matches) everywhere,
+    /// including inside generic types like `Vec`, `Option`, `HashMap`, etc.
+    /// The corresponding `#[prost(string, ...)]` attributes are updated to `message`.
     #[cfg(feature = "replace_types")]
-    pub fn replace_type(
-        mut self,
-        from: impl AsRef<str>,
-        to: impl AsRef<str>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let from = from.as_ref();
+    pub fn replace_string(mut self, to: impl AsRef<str>) -> Result<Self, Box<dyn Error>> {
         let to = to.as_ref();
-        if from.is_empty() || to.is_empty() {
-            return Err("Both from and to types must be provided".into());
+        if to.is_empty() {
+            return Err("Replacement type must be provided".into());
         }
+        self.config.string_replacement = Some(syn::parse_str(to)?);
+        Ok(self)
+    }
 
-        let from_type: syn::TypePath = syn::parse_str(from)?;
-        let to_type: syn::Type = syn::parse_str(to)?;
-        self.config
-            .type_replacements
-            .push((from_type.path, to_type));
+    /// Replace all `bytes` types in prost-generated code with the given type.
+    ///
+    /// This replaces both `::prost::bytes::Bytes` and `Vec<u8>` (depending on prost's
+    /// `bytes_type` config), including inside generic types like `Option`, `Vec`, etc.
+    /// The corresponding `#[prost(bytes = "...", ...)]` attributes are updated to `message`.
+    #[cfg(feature = "replace_types")]
+    pub fn replace_bytes(mut self, to: impl AsRef<str>) -> Result<Self, Box<dyn Error>> {
+        let to = to.as_ref();
+        if to.is_empty() {
+            return Err("Replacement type must be provided".into());
+        }
+        self.config.bytes_replacement = Some(syn::parse_str(to)?);
         Ok(self)
     }
 

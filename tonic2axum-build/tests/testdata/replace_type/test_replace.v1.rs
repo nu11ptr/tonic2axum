@@ -18,6 +18,9 @@ pub struct ReplaceRequest {
     /// nested message containing strings
     #[prost(message, optional, tag = "5")]
     pub inner: ::core::option::Option<Inner>,
+    /// plain bytes
+    #[prost(message, tag = "6")]
+    pub data: bytes::Bytes,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

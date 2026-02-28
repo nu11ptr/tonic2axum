@@ -15,7 +15,9 @@ mod test_compile {
         Builder::new()
             .prost_config(config)
             .file_descriptor_set_path(dir.path().join("fds.bin"))
-            .replace_type("alloc::string::String", "flexstr::SharedStr")
+            .replace_string("flexstr::SharedStr")
+            .unwrap()
+            .replace_bytes("bytes::Bytes")
             .unwrap()
             .compile(
                 &["tests/proto/test_replace/v1/test_replace.proto"],
