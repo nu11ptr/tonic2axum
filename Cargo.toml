@@ -7,7 +7,3 @@ members = [
     "tonic2axum",
     "tonic2axum-build",
 ]
-
-[patch.crates-io]
-prost = { path = "../prost/prost" }
-prost-derive = { path = "../prost/prost-derive" }

@@ -23,9 +23,6 @@ pub(crate) struct Generator {
     value_names: ValueNames,
 
     config: GeneratorConfig,
-
-    #[cfg(feature = "replace_types")]
-    replacements_applied: bool,
 }
 
 impl Generator {
@@ -46,8 +43,6 @@ impl Generator {
             modules: Vec::new(),
             value_names: ValueNames::new(config.value_suffix),
             config,
-            #[cfg(feature = "replace_types")]
-            replacements_applied: false,
         })
     }
 
@@ -64,17 +59,6 @@ impl Generator {
         service: &prost_build::Service,
         buf: &mut String,
     ) -> Result<(), Box<dyn Error>> {
-        // Parse the existing messages from the buffer, applying type replacements if configured
-        #[cfg(feature = "replace_types")]
-        if !self.replacements_applied && self.config.string_replacement.is_some() {
-            self.replacements_applied = true;
-            self.existing_messages
-                .parse_source_and_replace(buf, self.config.string_replacement.as_ref())?;
-        } else {
-            self.existing_messages.parse_source(buf)?;
-        }
-
-        #[cfg(not(feature = "replace_types"))]
         self.existing_messages.parse_source(buf)?;
 
         let state_type = self.config.state_types.get(service.name.as_str());

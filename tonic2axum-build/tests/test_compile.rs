@@ -3,34 +3,6 @@ mod test_compile {
     use tempfile::tempdir;
     use tonic2axum_build::{Builder, OpenApiSecurity, ProstConfig};
 
-    #[cfg(feature = "replace_types")]
-    #[test]
-    fn test_compile_with_replace_type() {
-        let dir = tempdir().unwrap();
-
-        let mut config = ProstConfig::new();
-        config
-            .out_dir(dir.path())
-            .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
-        Builder::new()
-            .prost_config(config)
-            .file_descriptor_set_path(dir.path().join("fds.bin"))
-            .replace_string("flexstr::SharedStr")
-            .unwrap()
-            .compile(
-                &["tests/proto/test_replace/v1/test_replace.proto"],
-                &["tests/proto"],
-            )
-            .unwrap();
-
-        let actual = std::fs::read_to_string(dir.path().join("test_replace.v1.rs")).unwrap();
-        // Bootstrap: uncomment to regenerate expected output
-        // std::fs::write("tests/testdata/replace_type/test_replace.v1.rs", &actual).unwrap();
-        let expected =
-            std::fs::read_to_string("tests/testdata/replace_type/test_replace.v1.rs").unwrap();
-        assert_eq!(actual, expected);
-    }
-
     #[test]
     fn test_compile_with_web_sockets() {
         let dir = tempdir().unwrap();

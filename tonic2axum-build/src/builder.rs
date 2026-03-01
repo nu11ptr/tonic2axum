@@ -45,10 +45,6 @@ pub(crate) struct GeneratorConfig {
     pub router_func_name: syn::Ident,
     pub service_mod_name_suffix: &'static str,
     pub struct_doc_comments: HashMap<LocalStr, DocComments>,
-
-    // Type replacements
-    #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
-    pub string_replacement: Option<syn::Type>,
 }
 
 impl Default for GeneratorConfig {
@@ -66,7 +62,6 @@ impl Default for GeneratorConfig {
             router_func_name: syn::Ident::new("make_router", Span::call_site()),
             service_mod_name_suffix: "_axum",
             struct_doc_comments: HashMap::new(),
-            string_replacement: None,
         }
     }
 }
@@ -242,21 +237,6 @@ impl Builder {
     pub fn prost_config(mut self, config: ProstConfig) -> Self {
         self.prost_config = Some(config);
         self
-    }
-
-    /// Replace all `String` types in prost-generated code with the given type.
-    ///
-    /// This replaces `::prost::alloc::string::String` (and suffix matches) everywhere,
-    /// including inside generic types like `Vec`, `Option`, `HashMap`, etc.
-    /// The corresponding `#[prost(string, ...)]` attributes are updated to `custom_string`.
-    #[cfg(feature = "replace_types")]
-    pub fn replace_string(mut self, to: impl AsRef<str>) -> Result<Self, Box<dyn Error>> {
-        let to = to.as_ref();
-        if to.is_empty() {
-            return Err("Replacement type must be provided".into());
-        }
-        self.config.string_replacement = Some(syn::parse_str(to)?);
-        Ok(self)
     }
 
     /// Set the tonic builder to customize the tonic build process.
