@@ -4,36 +4,36 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReplaceRequest {
     /// plain string
-    #[prost(message, required, tag = "1")]
+    #[prost(custom_string, tag = "1")]
     pub name: flexstr::SharedStr,
     /// repeated string (Vec)
-    #[prost(message, repeated, tag = "2")]
+    #[prost(custom_string, repeated, tag = "2")]
     pub tags: ::prost::alloc::vec::Vec<flexstr::SharedStr>,
     /// optional string (Option)
-    #[prost(message, optional, tag = "3")]
+    #[prost(custom_string, optional, tag = "3")]
     pub nickname: ::core::option::Option<flexstr::SharedStr>,
     /// map with string keys and values (HashMap)
-    #[prost(map = "message, message", tag = "4")]
+    #[prost(map = "custom_string, custom_string", tag = "4")]
     pub metadata: ::std::collections::HashMap<flexstr::SharedStr, flexstr::SharedStr>,
     /// nested message containing strings
     #[prost(message, optional, tag = "5")]
     pub inner: ::core::option::Option<Inner>,
     /// plain bytes
-    #[prost(message, required, tag = "6")]
-    pub data: bytes::Bytes,
+    #[prost(bytes = "vec", tag = "6")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct Inner {
-    #[prost(message, required, tag = "1")]
+    #[prost(custom_string, tag = "1")]
     pub value: flexstr::SharedStr,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(custom_string, repeated, tag = "2")]
     pub items: ::prost::alloc::vec::Vec<flexstr::SharedStr>,
 }
 #[derive(serde::Serialize, serde::Deserialize)]
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct ReplaceReply {
-    #[prost(message, required, tag = "1")]
+    #[prost(custom_string, tag = "1")]
     pub result: flexstr::SharedStr,
 }
 /// Generated client implementations.

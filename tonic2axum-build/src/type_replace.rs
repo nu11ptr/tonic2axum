@@ -2,18 +2,11 @@ use syn::visit_mut::VisitMut;
 
 pub(crate) struct TypeReplacer<'a> {
     string_replacement: Option<&'a syn::Type>,
-    bytes_replacement: Option<&'a syn::Type>,
 }
 
 impl<'a> TypeReplacer<'a> {
-    pub fn new(
-        string_replacement: Option<&'a syn::Type>,
-        bytes_replacement: Option<&'a syn::Type>,
-    ) -> Self {
-        Self {
-            string_replacement,
-            bytes_replacement,
-        }
+    pub fn new(string_replacement: Option<&'a syn::Type>) -> Self {
+        Self { string_replacement }
     }
 
     pub fn apply(&mut self, file: &mut syn::File) {
@@ -53,38 +46,6 @@ impl<'a> TypeReplacer<'a> {
         let string_path: syn::Path = syn::parse_str("alloc::string::String").unwrap();
         Self::path_matches(path, &string_path)
     }
-
-    /// Check if a path suffix-matches `bytes::Bytes`.
-    fn is_prost_bytes_path(path: &syn::Path) -> bool {
-        let bytes_path: syn::Path = syn::parse_str("bytes::Bytes").unwrap();
-        Self::path_matches(path, &bytes_path)
-    }
-
-    /// Check if a path suffix-matches `alloc::vec::Vec`.
-    fn is_vec_path(path: &syn::Path) -> bool {
-        let vec_path: syn::Path = syn::parse_str("alloc::vec::Vec").unwrap();
-        Self::path_matches(path, &vec_path)
-    }
-
-    /// Check if a type is `Vec<u8>` — path suffix-matches `alloc::vec::Vec` with a single
-    /// generic argument that is the primitive `u8`.
-    fn is_vec_u8(type_path: &syn::TypePath) -> bool {
-        if !Self::is_vec_path(&type_path.path) {
-            return false;
-        }
-        let last = match type_path.path.segments.last() {
-            Some(seg) => seg,
-            None => return false,
-        };
-        if let syn::PathArguments::AngleBracketed(args) = &last.arguments {
-            if args.args.len() == 1 {
-                if let syn::GenericArgument::Type(syn::Type::Path(inner)) = &args.args[0] {
-                    return inner.path.is_ident("u8");
-                }
-            }
-        }
-        false
-    }
 }
 
 impl<'a> TypeReplacer<'a> {
@@ -93,11 +54,6 @@ impl<'a> TypeReplacer<'a> {
         if let syn::Type::Path(type_path) = ty {
             // Check direct matches
             if self.string_replacement.is_some() && Self::is_string_path(&type_path.path) {
-                return true;
-            }
-            if self.bytes_replacement.is_some()
-                && (Self::is_prost_bytes_path(&type_path.path) || Self::is_vec_u8(type_path))
-            {
                 return true;
             }
 
@@ -117,70 +73,38 @@ impl<'a> TypeReplacer<'a> {
         false
     }
 
-    /// In a `#[prost(...)]` attribute, replace encoding types with `message`.
+    /// In a `#[prost(...)]` attribute, replace `string` encoding with `custom_string`.
     ///
     /// Handles:
-    /// - Bare `string` ident → `message`
-    /// - `bytes = "..."` key-value → `bytes` becomes `message`, `=` and literal are removed
-    /// - String literals inside map attributes (`map = "string, bytes"`) → replace both
-    ///   `string` and `bytes` with `message` inside the literal
+    /// - Bare `string` ident → `custom_string`
+    /// - String literals inside map attributes (`map = "string, ..."`) → replace
+    ///   `string` with `custom_string` inside the literal
     ///
-    /// When the encoding is replaced to `message`, adds `required` unless `optional` or
-    /// `repeated` is already present (prost treats bare `message` as optional by default).
-    fn replace_prost_encoding_with_message(attr: &mut syn::Attribute) {
+    /// `custom_string` is a scalar type in prost-derive and does not need `required`.
+    fn replace_prost_encoding(attr: &mut syn::Attribute) {
         if let syn::Meta::List(meta_list) = &mut attr.meta {
             let tokens: Vec<proc_macro2::TokenTree> =
                 meta_list.tokens.clone().into_iter().collect();
             let mut result: Vec<proc_macro2::TokenTree> = Vec::with_capacity(tokens.len());
             let mut i = 0;
-            let mut replaced_encoding = false;
 
             while i < tokens.len() {
                 match &tokens[i] {
-                    // Bare `string` ident → `message`
+                    // Bare `string` ident → `custom_string`
                     proc_macro2::TokenTree::Ident(ident) if *ident == "string" => {
                         result.push(proc_macro2::TokenTree::Ident(proc_macro2::Ident::new(
-                            "message",
+                            "custom_string",
                             ident.span(),
                         )));
-                        replaced_encoding = true;
                         i += 1;
                     }
-                    // `bytes = "..."` → `message` (skip `=` and literal)
-                    proc_macro2::TokenTree::Ident(ident) if *ident == "bytes" => {
-                        // Check if followed by `= "..."`
-                        if i + 2 < tokens.len() {
-                            if let proc_macro2::TokenTree::Punct(punct) = &tokens[i + 1] {
-                                if punct.as_char() == '=' {
-                                    if let proc_macro2::TokenTree::Literal(_) = &tokens[i + 2] {
-                                        // Replace `bytes = "..."` with just `message`
-                                        result.push(proc_macro2::TokenTree::Ident(
-                                            proc_macro2::Ident::new("message", ident.span()),
-                                        ));
-                                        replaced_encoding = true;
-                                        i += 3; // skip bytes, =, literal
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                        // No `= "..."` follows — just replace the bare ident
-                        result.push(proc_macro2::TokenTree::Ident(proc_macro2::Ident::new(
-                            "message",
-                            ident.span(),
-                        )));
-                        replaced_encoding = true;
-                        i += 1;
-                    }
-                    // String literals (inside map attributes): replace `string`/`bytes` → `message`
+                    // String literals (inside map attributes): replace `string` → `custom_string`
                     proc_macro2::TokenTree::Literal(lit) => {
                         let repr = lit.to_string();
                         if let Some(inner) =
                             repr.strip_prefix('"').and_then(|s| s.strip_suffix('"'))
                         {
-                            let new_inner = inner
-                                .replace("string", "message")
-                                .replace("bytes", "message");
+                            let new_inner = inner.replace("string", "custom_string");
                             if new_inner != inner {
                                 let mut new_lit = proc_macro2::Literal::string(&new_inner);
                                 new_lit.set_span(lit.span());
@@ -196,29 +120,6 @@ impl<'a> TypeReplacer<'a> {
                         result.push(tokens[i].clone());
                         i += 1;
                     }
-                }
-            }
-
-            // When encoding was replaced to `message`, prost treats it as optional by default.
-            // Add `required` unless `optional` or `repeated` is already present.
-            if replaced_encoding {
-                let has_optional_or_repeated = result.iter().any(|tt| {
-                    matches!(tt, proc_macro2::TokenTree::Ident(ident)
-                        if *ident == "optional" || *ident == "repeated")
-                });
-                if !has_optional_or_repeated && result.len() >= 2 {
-                    let span = result[0].span();
-                    result.insert(
-                        2,
-                        proc_macro2::TokenTree::Ident(proc_macro2::Ident::new("required", span)),
-                    );
-                    result.insert(
-                        3,
-                        proc_macro2::TokenTree::Punct(proc_macro2::Punct::new(
-                            ',',
-                            proc_macro2::Spacing::Alone,
-                        )),
-                    );
                 }
             }
 
@@ -240,12 +141,6 @@ impl VisitMut for TypeReplacer<'_> {
                     return;
                 }
             }
-            if let Some(replacement) = self.bytes_replacement {
-                if Self::is_prost_bytes_path(&type_path.path) || Self::is_vec_u8(type_path) {
-                    *ty = replacement.clone();
-                    return;
-                }
-            }
         }
     }
 
@@ -255,7 +150,7 @@ impl VisitMut for TypeReplacer<'_> {
         if self.type_contains_replacement(&field.ty) {
             for attr in &mut field.attrs {
                 if attr.path().is_ident("prost") {
-                    Self::replace_prost_encoding_with_message(attr);
+                    Self::replace_prost_encoding(attr);
                 }
             }
         }
@@ -277,15 +172,7 @@ mod tests {
     fn replace_string_in_type(ty_str: &str, to: &str) -> String {
         let mut ty = parse_type(ty_str);
         let to_type = parse_type(to);
-        let mut replacer = TypeReplacer::new(Some(&to_type), None);
-        replacer.visit_type_mut(&mut ty);
-        ty.to_token_stream().to_string()
-    }
-
-    fn replace_bytes_in_type(ty_str: &str, to: &str) -> String {
-        let mut ty = parse_type(ty_str);
-        let to_type = parse_type(to);
-        let mut replacer = TypeReplacer::new(None, Some(&to_type));
+        let mut replacer = TypeReplacer::new(Some(&to_type));
         replacer.visit_type_mut(&mut ty);
         ty.to_token_stream().to_string()
     }
@@ -343,65 +230,6 @@ mod tests {
         assert_eq!(
             result,
             ":: std :: collections :: HashMap < flexstr :: SharedStr , flexstr :: SharedStr >"
-        );
-    }
-
-    // --- Bytes replacement tests ---
-
-    #[test]
-    fn test_bytes_prost_bytes_match() {
-        let result = replace_bytes_in_type("::prost::bytes::Bytes", "bytes::Bytes");
-        assert_eq!(result, "bytes :: Bytes");
-    }
-
-    #[test]
-    fn test_bytes_vec_u8_match() {
-        let result = replace_bytes_in_type("::prost::alloc::vec::Vec<u8>", "bytes::Bytes");
-        assert_eq!(result, "bytes :: Bytes");
-    }
-
-    #[test]
-    fn test_bytes_vec_u8_in_option() {
-        let result = replace_bytes_in_type(
-            "::core::option::Option<::prost::alloc::vec::Vec<u8>>",
-            "bytes::Bytes",
-        );
-        assert_eq!(result, ":: core :: option :: Option < bytes :: Bytes >");
-    }
-
-    #[test]
-    fn test_bytes_does_not_match_vec_string() {
-        let result = replace_bytes_in_type(
-            "::prost::alloc::vec::Vec<::prost::alloc::string::String>",
-            "bytes::Bytes",
-        );
-        // Vec<String> should NOT be replaced by bytes replacement
-        assert_eq!(
-            result,
-            ":: prost :: alloc :: vec :: Vec < :: prost :: alloc :: string :: String >"
-        );
-    }
-
-    #[test]
-    fn test_bytes_does_not_match_string() {
-        let result = replace_bytes_in_type("::prost::alloc::string::String", "bytes::Bytes");
-        assert_eq!(result, ":: prost :: alloc :: string :: String");
-    }
-
-    // --- Combined replacement tests ---
-
-    #[test]
-    fn test_both_replacements() {
-        let mut ty = parse_type(
-            "::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::vec::Vec<u8>>",
-        );
-        let string_to = parse_type("flexstr::SharedStr");
-        let bytes_to = parse_type("bytes::Bytes");
-        let mut replacer = TypeReplacer::new(Some(&string_to), Some(&bytes_to));
-        replacer.visit_type_mut(&mut ty);
-        assert_eq!(
-            ty.to_token_stream().to_string(),
-            ":: std :: collections :: HashMap < flexstr :: SharedStr , bytes :: Bytes >"
         );
     }
 }

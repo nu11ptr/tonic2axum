@@ -213,11 +213,9 @@ impl ExistingMessages {
         &mut self,
         buf: &mut String,
         string_replacement: Option<&syn::Type>,
-        bytes_replacement: Option<&syn::Type>,
     ) -> Result<(), Box<dyn Error>> {
         let mut file: syn::File = syn::parse_str(buf)?;
-        crate::type_replace::TypeReplacer::new(string_replacement, bytes_replacement)
-            .apply(&mut file);
+        crate::type_replace::TypeReplacer::new(string_replacement).apply(&mut file);
         buf.clear();
         buf.push_str(&prettyplease::unparse(&file));
         self.extract_messages(file);

@@ -49,8 +49,6 @@ pub(crate) struct GeneratorConfig {
     // Type replacements
     #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
     pub string_replacement: Option<syn::Type>,
-    #[cfg_attr(not(feature = "replace_types"), allow(dead_code))]
-    pub bytes_replacement: Option<syn::Type>,
 }
 
 impl Default for GeneratorConfig {
@@ -69,7 +67,6 @@ impl Default for GeneratorConfig {
             service_mod_name_suffix: "_axum",
             struct_doc_comments: HashMap::new(),
             string_replacement: None,
-            bytes_replacement: None,
         }
     }
 }
@@ -251,7 +248,7 @@ impl Builder {
     ///
     /// This replaces `::prost::alloc::string::String` (and suffix matches) everywhere,
     /// including inside generic types like `Vec`, `Option`, `HashMap`, etc.
-    /// The corresponding `#[prost(string, ...)]` attributes are updated to `message`.
+    /// The corresponding `#[prost(string, ...)]` attributes are updated to `custom_string`.
     #[cfg(feature = "replace_types")]
     pub fn replace_string(mut self, to: impl AsRef<str>) -> Result<Self, Box<dyn Error>> {
         let to = to.as_ref();
@@ -259,21 +256,6 @@ impl Builder {
             return Err("Replacement type must be provided".into());
         }
         self.config.string_replacement = Some(syn::parse_str(to)?);
-        Ok(self)
-    }
-
-    /// Replace all `bytes` types in prost-generated code with the given type.
-    ///
-    /// This replaces both `::prost::bytes::Bytes` and `Vec<u8>` (depending on prost's
-    /// `bytes_type` config), including inside generic types like `Option`, `Vec`, etc.
-    /// The corresponding `#[prost(bytes = "...", ...)]` attributes are updated to `message`.
-    #[cfg(feature = "replace_types")]
-    pub fn replace_bytes(mut self, to: impl AsRef<str>) -> Result<Self, Box<dyn Error>> {
-        let to = to.as_ref();
-        if to.is_empty() {
-            return Err("Replacement type must be provided".into());
-        }
-        self.config.bytes_replacement = Some(syn::parse_str(to)?);
         Ok(self)
     }
 
